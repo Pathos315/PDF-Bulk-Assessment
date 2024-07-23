@@ -76,7 +76,7 @@ def extract_identifier(
             if match := pattern.search(text.casefold()):
                 if pattern_key == "arxiv" and (arxiv_meta := match.group(0)):
                     return standardize_identifier(arxiv_meta, pattern_key)
-                if doi_meta := match.group(1):
+                elif doi_meta := match.group(1):
                     # For DOI, standardize and return it
                     return standardize_identifier(doi_meta, pattern_key)
     return None

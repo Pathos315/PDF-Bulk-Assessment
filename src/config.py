@@ -71,7 +71,7 @@ class ScrapeConfig:
     source_dir: str
     dimensions_ai_dataset_url: str
     google_scholar_url: str
-    semantic_scholar_url_stub: str
+    semantic_scholar_url: str
     citation_crosscite_url: str
     abstract_getting_url: str
     downloader_url: str = field(repr=False)
@@ -104,7 +104,7 @@ def read_config(config_file: str) -> ScrapeConfig:
 
 config: ScrapeConfig = read_config("config_setup.json")
 
-DIMENSIONS_AI_KEYS: dict[str, str] = {
+DIMENSIONS_AI_MAPPING: dict[str, str] = {
     "title": "title",
     "pub_date": "pub_date",
     "doi": "doi",
@@ -114,6 +114,18 @@ DIMENSIONS_AI_KEYS: dict[str, str] = {
     "author_list": "author_list",
     "citations": "cited_dimensions_ids",
     "keywords": "mesh_terms",
+}
+
+SEMANTIC_SCHOLAR_MAPPING: dict[str, str] = {
+    "title": "title",
+    "pub_date": "publicationDate",
+    "doi": "externalIds",
+    "internal_id": "paperId",
+    "journal_title": "journal",
+    "times_cited": "citationCount",
+    "keywords": "fieldsOfStudy",
+    "author_list": "authors",
+    "abstract": "abstract",
 }
 
 KEY_TYPE_PAIRINGS: dict[str, Any] = {

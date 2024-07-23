@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import time
+from time import perf_counter, sleep
+from functools import wraps
 import dis
 import pstats
 import subprocess
 import sys
 from cProfile import Profile
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Any
 
 import memory_profiler
 import psutil
 
 from src.config import config
+from src.log import logger
 
 if TYPE_CHECKING:
     from argparse import Namespace
@@ -107,3 +111,22 @@ def get_profiler(args: Namespace, sciscrape: SciScraper) -> None:  # type: ignor
         "bytecode": run_bytecode_profiler,
     }
     profiler_dict.get(args.profilers, sciscrape(args.file))
+
+
+def get_time(func: Callable) -> Callable:
+    @wraps(func)
+    def wrapper(*args, **kwargs) -> Any:
+
+        # Note that timing your code once isn't the most reliable option
+        # for timing your code. Look into the timeit module for more accurate
+        # timing.
+        start_time: float = perf_counter()
+        result: Any = func(*args, **kwargs)
+        end_time: float = perf_counter()
+
+        logger.debug(
+            f'"{func.__name__}()" took {end_time - start_time:.2f} seconds to execute'
+        )
+        return result
+
+    return wrapper

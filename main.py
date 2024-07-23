@@ -4,19 +4,18 @@ By John Fallot <john.fallot@gmail.com>
 """
 
 from __future__ import annotations
-
-from time import perf_counter
 from typing import TYPE_CHECKING
 
 from src.argsbuilder import build_parser
 from src.factories import SCISCRAPERS, read_factory
 from src.log import logger
-from src.profilers import get_profiler
+from src.profilers import get_profiler, get_time
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
+@get_time
 def main(argv: Sequence[str] | None = None) -> None:
     """
     Entry point for the `sciscraper` application. Parses command line arguments and executes the appropriate actions.
@@ -36,17 +35,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     -------
     None
     """
-
-    start = perf_counter()
     args = build_parser(argv)
 
     sciscrape = read_factory() if args.mode is None else SCISCRAPERS[args.mode]
     logger.debug(repr(args.file))
-
     get_profiler(args, sciscrape)
-
-    elapsed = perf_counter() - start
-    logger.info("Extraction finished in %.2f seconds.", elapsed)
 
 
 if __name__ == "__main__":

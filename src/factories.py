@@ -21,8 +21,14 @@ from src.serials import (
     serialize_from_txt,
 )
 from src.stagers import stage_from_series, stage_with_reference
-from src.webscrapers import DimensionsScraper, GoogleScholarScraper
+from src.webscrapers import (
+    DimensionsScraper,
+    GoogleScholarScraper,
+    SemanticWebScraper,
+)
 
+
+# Create instances of scrapers
 SCRAPERS: dict[str, ScrapeFetcher] = {
     "pdf_lookup": ScrapeFetcher(
         DocScraper(
@@ -32,7 +38,10 @@ SCRAPERS: dict[str, ScrapeFetcher] = {
         serialize_from_directory,
     ),
     "csv_lookup": ScrapeFetcher(
-        DimensionsScraper(config.dimensions_ai_dataset_url),
+        SemanticWebScraper(
+            config.semantic_scholar_url,
+            config.sleep_interval,
+        ),
         serialize_from_csv,
     ),
     "abstract_lookup": ScrapeFetcher(
@@ -55,7 +64,7 @@ SCRAPERS: dict[str, ScrapeFetcher] = {
             config.google_scholar_url,
             config.sleep_interval,
             2016,
-            2023,
+            2024,
             "j",
             5,
         ),
@@ -64,6 +73,7 @@ SCRAPERS: dict[str, ScrapeFetcher] = {
 }
 
 
+# Create instances of stagers
 STAGERS: dict[str, StagingFetcher] = {
     "abstracts": StagingFetcher(
         DocScraper(
@@ -72,10 +82,6 @@ STAGERS: dict[str, StagingFetcher] = {
             False,
         ),
         stage_from_series,
-    ),
-    "citations": StagingFetcher(
-        DimensionsScraper(config.dimensions_ai_dataset_url),
-        stage_with_reference,
     ),
     "download": StagingFetcher(
         BulkPDFScraper(config.downloader_url),
@@ -86,16 +92,19 @@ STAGERS: dict[str, StagingFetcher] = {
         partial(stage_with_reference, column_x="figures"),
     ),
     "pdf_expanded": StagingFetcher(
-        DimensionsScraper(config.dimensions_ai_dataset_url),
+        SemanticWebScraper(
+            config.semantic_scholar_url,
+            config.sleep_interval,
+        ),
         partial(stage_from_series, column="doi_from_pdf"),
     ),
 }
 
 
+# Create instances of scraper factories for different scraper types
 SCISCRAPERS: dict[str, SciScraper] = {
     "directory": SciScraper(SCRAPERS["pdf_lookup"], STAGERS["pdf_expanded"]),
     "wordscore": SciScraper(SCRAPERS["csv_lookup"], STAGERS["abstracts"]),
-    "citations": SciScraper(SCRAPERS["csv_lookup"], STAGERS["citations"]),
     "download": SciScraper(SCRAPERS["csv_lookup"], STAGERS["download"]),
     "images": SciScraper(SCRAPERS["csv_lookup"], STAGERS["images"]),
     "fastscore": SciScraper(SCRAPERS["abstract_lookup"], None),

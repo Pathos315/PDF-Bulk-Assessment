@@ -1,18 +1,20 @@
 from __future__ import annotations
 
+import json
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from json import loads
 from time import sleep
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Dict, List
+from typing_extensions import deprecated
 from urllib.parse import urlencode
 
 from requests import Response, Session
 from selectolax.parser import HTMLParser, Node
 
-from src.config import DIMENSIONS_AI_KEYS, config
+from src.config import DIMENSIONS_AI_MAPPING, SEMANTIC_SCHOLAR_MAPPING, config
 from src.log import logger
 
 if TYPE_CHECKING:
@@ -36,6 +38,7 @@ class WebScrapeResult:
     times_cited: int | None
     author_list: list[str] = field(default_factory=list)
     citations: list[str] = field(default_factory=list)
+    references: list[str] = field(default_factory=list)
     keywords: list[str] | None = field(default_factory=list)
     figures: list[str] | None = field(default_factory=list)
     biblio: str | None = None
@@ -50,7 +53,9 @@ class WebScraper(ABC):
     sleep_val: float
 
     @abstractmethod
-    def obtain(self, search_text: str) -> WebScrapeResult | None:
+    def obtain(
+        self, search_text: str
+    ) -> Generator[WebScrapeResult, None, None] | None:
         """
         obtain takes the requested identifier string, `search_text`
         normally a digital object identifier (DOI), or similar,
@@ -70,14 +75,17 @@ class WebScraper(ABC):
             which gets sent back to a dataframe.
         """
 
-    def get_items_from_response(self, response_text: str, key: str) -> Any:
-        return loads(response_text)[key][0]
-
-    def get_singular_item_from_response(
-        self, response_text: str, key: str, subkey: str
+    def get_item(
+        self, data: dict[str, Any], key: str, subkey: str | None = None
     ) -> Any:
-        doc = self.get_items_from_response(response_text, key)
-        return doc[subkey]
+        """Retrieves an item from the parsed data, with optional subkey."""
+        try:
+            if subkey:
+                return data[key][subkey]
+            return data[key]
+        except KeyError:
+            logger.warning(f"Key '{key}' not found in response data")
+            return None
 
 
 @dataclass
@@ -93,7 +101,7 @@ class GoogleScholarScraper(WebScraper):
 
     def obtain(
         self, search_text: str
-    ) -> Generator[WebScrapeResult, Any, None]:  # type: ignore[override, unused-ignore]
+    ) -> Generator[WebScrapeResult, None, None] | None:
         """
         Fetches and parses articles from Google Scholar based on the search_text and
         pre-defined criteria such as publication_type, date range, etc.
@@ -122,6 +130,7 @@ class GoogleScholarScraper(WebScraper):
 
             sleep(self.sleep_val)
             response = client.get(self.url, params=params_)  # type: ignore[arg-type]
+
             if not response.ok:
                 logger.error(f"An error occurred for {search_text}")
                 return
@@ -130,37 +139,37 @@ class GoogleScholarScraper(WebScraper):
             results: list[Node] = html.tags("div.gs_ri")
 
             for result in results:
-                title: str = (
-                    result.css_first("h3.gs_rt").text(strip=True)
-                    if True
-                    else "N/A"
-                )
-                article_url = (
-                    result.css_first("a").text(strip=True) if True else "N/A"
-                )
-                abstract = self.find_element_text(result, class_name="gs_rs")
-                times_cited = self.find_element_text(
-                    result,
-                    class_name="gs_flb",
-                    regex_pattern=r"\d+",
-                )
-                publication_year = self.find_element_text(
-                    result,
-                    class_name="gs_a",
-                    regex_pattern=r"\d{4}",
-                )
-                yield WebScrapeResult(
-                    title=title,
-                    pub_date=publication_year,
-                    doi=article_url,
-                    internal_id=self.publication_type,
-                    abstract=abstract,
-                    times_cited=int(times_cited),
-                    journal_title=None,
-                    keywords=[search_text],
-                )
+                yield self._parse_result(result, search_text)
 
-    def find_element_text(
+    def _parse_result(self, result: Node, search_text: str) -> WebScrapeResult:
+        title: str = (
+            result.css_first("h3.gs_rt").text(strip=True) if True else "N/A"
+        )
+        article_url = result.css_first("a").text(strip=True) if True else "N/A"
+        abstract = self._find_element_text(result, class_name="gs_rs")
+        times_cited = self._find_element_text(
+            result,
+            class_name="gs_flb",
+            regex_pattern=r"\d+",
+        )
+        publication_year = self._find_element_text(
+            result,
+            class_name="gs_a",
+            regex_pattern=r"\d{4}",
+        )
+
+        return WebScrapeResult(
+            title=title,
+            pub_date=publication_year,
+            doi=article_url,
+            internal_id=self.publication_type,
+            abstract=abstract,
+            times_cited=int(times_cited),
+            journal_title=None,
+            keywords=[search_text],
+        )
+
+    def _find_element_text(
         self,
         result: Node,
         class_name: str,
@@ -183,14 +192,93 @@ class GoogleScholarScraper(WebScraper):
         )
 
 
+class SemanticWebScraper(WebScraper):
+
+    def __init__(self, url: str, sleep_val: float):
+        self.url = url
+        self.sleep_val = sleep_val  # type: ignore
+
+    def obtain(
+        self,
+        search_text: str,
+    ) -> Generator[WebScrapeResult, None, None] | None:
+        """
+        Fetches and parses articles from Semantic Scholar based on the search_text.
+        """
+        logger.debug("Searching for: %s", search_text)
+        sleep(self.sleep_val)
+
+        url = f"{self.url}search/match?query={search_text}&fields=url,paperId,year,authors,externalIds,title,publicationDate,abstract,citationCount,journal,fieldsOfStudy,citations,references"
+        print(url)
+
+        try:
+            response = client.get(url)
+            logger.debug("Response status: %s", response.status_code)
+
+            if not response.ok:
+                logger.error(
+                    "An error occurred for %s. Status: %s, Response: %s",
+                    search_text,
+                    response.status_code,
+                    response.text,
+                )
+                return None
+
+            data = loads(response.text)
+
+            if not data.get("data"):
+                logger.warning("No results found for query: %s", search_text)
+                return None
+
+            paper_data = data["data"][0]
+
+            result = WebScrapeResult(
+                title=paper_data.get("title", "N/A"),
+                pub_date=paper_data.get("publicationDate"),
+                doi=paper_data.get("externalIds", {}).get("DOI", "N/A"),
+                internal_id=paper_data.get("paperId", "N/A"),
+                abstract=paper_data.get("abstract", "N/A"),
+                times_cited=paper_data.get("citationCount", 0),
+                citations=paper_data.get("citations", []),
+                references=paper_data.get("references", []),
+                journal_title=paper_data.get("journal", {}).get("name"),
+                keywords=paper_data.get("fieldsOfStudy", []),
+                author_list=self.get_authors(paper_data),
+            )
+
+            yield result  # type: ignore
+
+        except json.JSONDecodeError:
+            logger.error(
+                "Failed to parse JSON response for query: %s", search_text
+            )
+        except Exception as e:
+            logger.exception(
+                "Unexpected error occurred for query: %s. Error: %s",
+                search_text,
+                str(e),
+            )
+
+        return None
+
+    def get_authors(self, paper_data: dict) -> list[str]:
+        """
+        Extracts author names from the paper data.
+        """
+        return [
+            author.get("name", "N/A")
+            for author in paper_data.get("authors", [])
+        ]
+
+
 @dataclass
+@deprecated("Use SemanticWebScraper instead.")
 class DimensionsScraper(WebScraper):
     """
     Representation of a webscraper that makes requests to dimensions.ai.
     """
 
     query_subset_citations: bool = False
-    sleep_val: float = 1.0
 
     def obtain(self, search_text: str) -> WebScrapeResult | None:
         querystring = self.create_querystring(search_text)
@@ -213,28 +301,34 @@ class DimensionsScraper(WebScraper):
         return client.get(self.url, params=querystring)
 
     def enrich_response(self, response: Response) -> dict[str, Any]:
-        api_keys = DIMENSIONS_AI_KEYS
+        api_mapping = DIMENSIONS_AI_MAPPING
 
         getters: dict[str, tuple[str, WebScraper]] = {
             "biblio": (
                 "doi",
-                CitationScraper(config.citation_crosscite_url, sleep_val=0.1),
+                CitationScraper(
+                    config.citation_crosscite_url,
+                    sleep_val=0.1,
+                ),
             ),
             "abstract": (
                 "internal_id",
-                OverviewScraper(config.abstract_getting_url, sleep_val=0.1),
+                OverviewScraper(
+                    config.abstract_getting_url,
+                    sleep_val=0.1,
+                ),
             ),
         }
-
-        item = self.get_items_from_response(response.text, "docs")
-        data = {key: item.get(value) for (key, value) in api_keys.items()}
+        response_data = loads(response.text)
+        item = self.get_item(response_data, "docs")
+        data = {key: item.get(value) for (key, value) in api_mapping.items()}
         for key, getter in getters.items():
             data[key] = self.get_extra_variables(data, *getter)
         return data
 
     def get_extra_variables(
         self, data: dict[str, Any], query: str, getter: WebScraper
-    ) -> WebScrapeResult | None:
+    ) -> Generator[WebScrapeResult, None, None] | None:
         """get_extra_variables queries
         subsidiary scrapers to get
         additional data
@@ -348,8 +442,8 @@ class OverviewScraper(WebScraper):
         )
 
         return (
-            self.get_singular_item_from_response(
-                response.text,
+            self.get_item(
+                response.json(),
                 "docs",
                 "abstract",
             )

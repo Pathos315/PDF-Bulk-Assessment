@@ -5,11 +5,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator, TypeVar
 
 import pandas as pd
+import uuid
 from tqdm import tqdm
 
 from src.change_dir import change_dir
@@ -23,6 +24,9 @@ SerializationStrategyFunction = Callable[[Path], list[Any]]
 StagingStrategyFunction = Callable[[pd.DataFrame], Iterable[Any]]
 ScrapeResult = DocumentResult | WebScrapeResult | DownloadReceipt
 Scraper = DocScraper | WebScraper | Downloader
+
+
+T = TypeVar("T", bound=ScrapeResult)
 
 
 @dataclass
@@ -51,37 +55,28 @@ class Fetcher(ABC):
 
     def fetch(
         self, search_terms: list[str], tqdm_unit: str = "abstracts"
-    ) -> pd.DataFrame:
+    ) -> Generator[ScrapeResult, None, None]:
         """
-        fetch runs a scrape using the given search terms and returns a dataframe.
+        fetch runs a scrape using the given search terms and yields results.
 
         Parameters
         ----------
         search_terms : list[str]
             A serialized list of terms to be scraped.
 
-        Returns
+        Yields
         -------
-        pd.DataFrame
-            A dataframe containing biliographic data.
+        ScrapeResult
+            A result containing bibliographic data.
         """
-        data: list[ScrapeResult] = []
         for term in tqdm(
             search_terms, desc="[sciscraper]: ", unit=f"{tqdm_unit}"
         ):
             results = self.scraper.obtain(term)
-            # Check if results is a single ScrapeResult, and if so, convert it to a list
-            if not isinstance(results, Iterable) or isinstance(
-                results, str
-            ):  # Including `isinstance(results, str)` to exclude strings
-                results = [results]  # type: ignore[assignment]
-
-            for result in results:  # type: ignore[arg-type, union-attr]
-                if result is not None:
-                    data.append(result)
-
-        logger.debug(data)
-        return pd.DataFrame(data, index=None)
+            if isinstance(results, Generator):
+                yield from results
+            elif results is not None:
+                yield results
 
 
 @dataclass
@@ -97,10 +92,11 @@ class ScrapeFetcher(Fetcher):
 
     def __call__(self, target: Path) -> pd.DataFrame:
         search_terms: list[str] = self.serializer(target)
-        outcome = self.fetch(search_terms)
+        results = list(self.fetch(search_terms))
+        df = pd.DataFrame(results)
         if self.title_serializer:
-            outcome["title"] = self.title_serializer(target)
-        return outcome
+            df["title"] = self.title_serializer(target)
+        return df
 
 
 @dataclass
@@ -116,14 +112,11 @@ class StagingFetcher(Fetcher):
     def __call__(self, prior_dataframe: pd.DataFrame) -> pd.DataFrame:
         staged_terms: Iterable[Any] = self.stager(prior_dataframe)
         if isinstance(staged_terms, list):
-            dataframe = self.fetch_from_staged_series(
-                prior_dataframe, staged_terms
-            )
+            return self.fetch_from_staged_series(prior_dataframe, staged_terms)
         elif isinstance(staged_terms, tuple):
-            dataframe = self.fetch_with_staged_reference(staged_terms)
+            return self.fetch_with_staged_reference(staged_terms)
         else:
             raise ValueError("Staged terms must be lists or tuples.")
-        return dataframe
 
     def fetch_from_staged_series(
         self, prior_dataframe: pd.DataFrame, staged_terms: list[Any]
@@ -131,7 +124,8 @@ class StagingFetcher(Fetcher):
         """If the terms are staged as a list, then the dataframe is extended
         along the provided query, and then it is appended to the existing dataframe.
         """
-        dataframe_ext: pd.DataFrame = self.fetch(staged_terms)
+        results = list(self.fetch(staged_terms))
+        dataframe_ext: pd.DataFrame = pd.DataFrame(results)
         dataframe: pd.DataFrame = prior_dataframe.join(dataframe_ext)
         return dataframe
 
@@ -149,7 +143,9 @@ class StagingFetcher(Fetcher):
         provide the source titles, from which the ensuing citations
         were originally found. The prior dataframe is not kept."""
         citations, src_titles = staged_terms
-        ref_dataframe = self.fetch(citations)
+        results = list(self.fetch(citations))
+        print(results)
+        ref_dataframe = pd.DataFrame(results)
         dataframe = ref_dataframe.join(
             pd.Series(
                 src_titles,
@@ -260,4 +256,5 @@ class SciScraper:
         """Returns a `export_name` for the spreadsheet with
         both today's date and a randomly generated `print_id`
         number."""
-        return Path(f"{config.today}_sciscraper.csv")
+        unique_id: str = str(uuid.uuid4())[:4]
+        return Path(f"{config.today}_sciscraper_{unique_id}.csv")

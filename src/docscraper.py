@@ -225,7 +225,7 @@ def calculate_likelihood(
         return 0.0
 
     # Calculate the number of words that don't match any criteria
-    other_words = total_words - desired_matches - undesired_matches
+    other_words: int = total_words - desired_matches - undesired_matches
 
     # Calculate the likelihood score
     desired_weight = 1.0

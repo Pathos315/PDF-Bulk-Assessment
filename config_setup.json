@@ -1,17 +1,17 @@
 {
     "prog": "sciscraper",
     "description": "A bulk academic PDF extractor program, designed specifically for papers about behavioral science and design.",
-    "source_file": "/Users/johnfallot/Downloads/221022_sciscraper_0 - 221022_sciscraper_0.csv",
+    "source_file": "exports/240123_sample.csv",
     "source_dir": "..sciscraper_v1/papers",
     "dimensions_ai_dataset_url": "https://app.dimensions.ai/discover/publication/results.json",
     "google_scholar_url": "https://scholar.google.com/scholar",
-    "semantic_scholar_url_stub": "https://api.semanticscholar.org/graph/v1/paper/search?",
+    "semantic_scholar_url": "https://api.semanticscholar.org/graph/v1/paper/",
     "citation_crosscite_url": "https://citation.crosscite.org/format",
     "abstract_getting_url": "https://app.dimensions.ai/details/sources/publication",
     "downloader_url": "https://sci-hub.se/",
     "export_dir": "exports",
     "target_words": "words/target_words.txt",
     "bycatch_words": "words/bycatch_words.txt",
-    "sleep_interval": 0.75,
+    "sleep_interval": 1.20,
     "profiling_path": ".logs/profiling/sciscrape_profiling.prof"
 }

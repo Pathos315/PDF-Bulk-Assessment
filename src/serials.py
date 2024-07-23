@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import pandas as pd
 
 from src.config import UTF, FilePath
-from src.log import logger
+from src.log import log_debug
 
-if TYPE_CHECKING:
-    from pathlib import Path
+from pathlib import Path
 
 
 def serialize_from_txt(target: FilePath) -> list[str]:
@@ -23,7 +20,8 @@ def serialize_from_txt(target: FilePath) -> list[str]:
         return [word.strip().lower() for word in iowrapper]
 
 
-def serialize_from_csv(target: FilePath, column: str = "doi") -> list[str]:
+@log_debug
+def serialize_from_csv(target: FilePath, column: str = "title") -> list[str]:
     """
     Reads a .csv file of papers, `target`, identifies a specific column of interest `column`, and then returns a list of entries.
 
@@ -38,11 +36,10 @@ def serialize_from_csv(target: FilePath, column: str = "doi") -> list[str]:
         target, skip_blank_lines=True, usecols=[column]
     )
     data_list = list_with_na_replacement(data, column)
-    cleaned_data = clean_any_nested_columns(data_list, column)
-    logger.debug("serializer=%s, terms=%s", serialize_from_csv, cleaned_data)
-    return cleaned_data
+    return clean_any_nested_columns(data_list, column)
 
 
+@log_debug
 def serialize_from_directory(
     target: FilePath, suffix: str = "pdf"
 ) -> list[Path]:
@@ -56,11 +53,7 @@ def serialize_from_directory(
     :rtype list:
     :returns: A list of files from the provided directory, `target` that adhere to the requested format `suffix`.
     """
-    data_list: list[Path] = list(Path(target).rglob(f"*.{suffix}"))
-    logger.debug(
-        "serializer=%s, terms=%s", serialize_from_directory, data_list
-    )
-    return data_list
+    return list(Path(target).rglob(f"*.{suffix}"))
 
 
 def clean_any_nested_columns(data_list: list[str], column: str) -> list[str]:

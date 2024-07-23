@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from src.log import logger
+from src.log import log_debug
 from src.serials import clean_any_nested_columns, list_with_na_replacement
 
 if TYPE_CHECKING:
     import pandas as pd
 
 
+@log_debug
 def stage_from_series(
     target: pd.DataFrame, column: str = "abstract"
 ) -> list[str]:
@@ -43,15 +44,10 @@ def stage_from_series(
         ['apple','orange','N/A']
     """
     raw_terms: list[str] = list_with_na_replacement(target.copy(), column)
-    staged_terms = clean_any_nested_columns(raw_terms, column)
-    logger.debug(
-        "stager=%s, terms=%s",
-        stage_from_series,
-        staged_terms,
-    )
-    return staged_terms
+    return clean_any_nested_columns(raw_terms, column)
 
 
+@log_debug
 def stage_with_reference(
     target: pd.DataFrame,
     column_x: str = "citations",
@@ -120,6 +116,4 @@ def stage_with_reference(
         list_with_na_replacement(data, column_y),
         column_y,
     )
-    staged_terms = data_col_x, data_col_y
-    logger.debug("stager=%s, terms=%s", stage_with_reference, staged_terms)
-    return staged_terms
+    return data_col_x, data_col_y

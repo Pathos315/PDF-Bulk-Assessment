@@ -228,7 +228,6 @@ def find_identifier_in_google_search(
     :param int num_results:  The number of search results to consider.
     :param int max_length_display: The maximum number of characters to consider. Defaults to 100.
 
-
     :rtype: DOIFromPDFResult | None
     :returns: The result object containing the identifier information, if found; otherwise, None.
     """
