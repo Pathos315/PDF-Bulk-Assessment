@@ -15,4 +15,4 @@ Pipfile
 **src/config_setup.json
 dist/**
 sciscrape/sciscraper.code-workspace
-.logs
+/.logs/** */
