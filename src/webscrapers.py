@@ -89,110 +89,6 @@ class WebScraper(ABC):
 
 
 @dataclass
-class GoogleScholarScraper(WebScraper):
-    """
-    Representation of a webscraper that makes requests to Google Scholar.
-    """
-
-    start_year: int
-    end_year: int
-    publication_type: str
-    num_articles: int
-
-    def obtain(
-        self, search_text: str
-    ) -> Generator[WebScrapeResult, None, None] | None:
-        """
-        Fetches and parses articles from Google Scholar based on the search_text and
-        pre-defined criteria such as publication_type, date range, etc.
-        """
-
-        publication_type_mapping = {
-            "all": "",
-            "j": "source: journals",
-            "b": "source: books",
-            "c": "source: conferences",
-            # Add more mappings as needed
-        }
-        publication_type = publication_type_mapping.get(
-            self.publication_type, ""
-        )
-        num_pages = (self.num_articles - 1) // 10 + 1
-        for page in range(num_pages):
-            start = page * 10
-            params_: _SupportsItem[Any] | None = {
-                "q": search_text,
-                "as_ylo": self.start_year,
-                "as_yhi": self.end_year,
-                f"{publication_type}": publication_type,
-                "start": start,
-            }  # type: ignore[assignment]
-
-            sleep(self.sleep_val)
-            response = client.get(self.url, params=params_)  # type: ignore[arg-type]
-
-            if not response.ok:
-                logger.error(f"An error occurred for {search_text}")
-                return
-
-            html = HTMLParser(response.text)
-            results: list[Node] = html.tags("div.gs_ri")
-
-            for result in results:
-                yield self._parse_result(result, search_text)
-
-    def _parse_result(self, result: Node, search_text: str) -> WebScrapeResult:
-        title: str = (
-            result.css_first("h3.gs_rt").text(strip=True) if True else "N/A"
-        )
-        article_url = result.css_first("a").text(strip=True) if True else "N/A"
-        abstract = self._find_element_text(result, class_name="gs_rs")
-        times_cited = self._find_element_text(
-            result,
-            class_name="gs_flb",
-            regex_pattern=r"\d+",
-        )
-        publication_year = self._find_element_text(
-            result,
-            class_name="gs_a",
-            regex_pattern=r"\d{4}",
-        )
-
-        return WebScrapeResult(
-            title=title,
-            pub_date=publication_year,
-            doi=article_url,
-            internal_id=self.publication_type,
-            abstract=abstract,
-            times_cited=int(times_cited),
-            journal_title=None,
-            keywords=[search_text],
-        )
-
-    def _find_element_text(
-        self,
-        result: Node,
-        class_name: str,
-        element: str = "div",
-        regex_pattern: str | None = None,
-    ) -> str:
-        text = (
-            result.css_first(query=f".{class_name} > {element}").text(
-                strip=True
-            )
-            if True
-            else ""
-        )
-        if not regex_pattern:
-            return text
-        return (
-            match.group(0)
-            if (match := re.search(regex_pattern, text))
-            else text
-        )
-
-
-@dataclass
 class SemanticWebScraper(WebScraper):
     url: str
     sleep_val: float
@@ -206,8 +102,12 @@ class SemanticWebScraper(WebScraper):
         """
         logger.debug("Searching for: %s", search_text)
         sleep(self.sleep_val)
-
-        url = f"{self.url}search/match?query={search_text}&fields=url,paperId,year,authors,externalIds,title,publicationDate,abstract,citationCount,journal,fieldsOfStudy,citations,references"
+        fields: str = (
+            "url,paperId,year,authors,externalIds,\
+            title,publicationDate,abstract,citationCount,\
+            journal,fieldsOfStudy,citations,references"
+        )
+        url = f"{self.url}search/match?query={search_text}&fields={fields}"
 
         try:
             response = client.get(url)
@@ -275,6 +175,140 @@ class SemanticWebScraper(WebScraper):
             author.get("name", "N/A")
             for author in paper_data.get("authors", [])
         ]
+
+
+@dataclass
+@deprecated("Use Semantic Scraper instead")
+class GoogleScholarScraper(WebScraper):
+    """
+    Representation of a webscraper that makes requests to Google Scholar.
+    """
+
+    start_year: int
+    end_year: int
+    publication_type: str
+    num_articles: int
+
+    def obtain(
+        self, search_text: str
+    ) -> Generator[WebScrapeResult, None, None]:
+        """
+        Fetches and parses articles from Google Scholar based on the search_text and
+        pre-defined criteria such as publication_type, date range, etc.
+        Yields WebScrapeResult objects as they are parsed.
+        """
+        publication_type_mapping = {
+            "all": "",
+            "j": "source:journals",
+            "b": "source:books",
+            "c": "source:conferences",
+        }
+        publication_type = publication_type_mapping.get(
+            self.publication_type, ""
+        )
+
+        results_yielded = 0
+        num_pages = (self.num_articles - 1) // 10 + 1
+
+        for page in range(num_pages):
+            start = page * 10
+            params = {
+                "q": search_text,
+                "hl": "en",
+                "as_ylo": self.start_year,
+                "as_yhi": self.end_year,
+                "as_vis": "0",
+                "start": start,
+            }
+            if publication_type:
+                params["as_sdt"] = "0,5"
+                params["as_vis"] = "1"
+                params[publication_type] = ""
+
+            url = f"{self.url}?{urlencode(params)}"
+            print(url)
+
+            sleep(self.sleep_val)
+            response = client.get(url)
+
+            if not response.ok:
+                logger.error(
+                    f"An error occurred for {search_text} on page {page + 1}"
+                )
+                continue
+
+            html = HTMLParser(response.text)
+            print(html)
+            article_results = html.css("div")
+            print(article_results)
+
+            for result in article_results:
+                print(result.text())
+                parsed_result = self._parse_result(result, search_text)
+                print(parsed_result)
+                if parsed_result:
+                    yield parsed_result
+                    results_yielded += 1
+                    if results_yielded >= self.num_articles:
+                        return
+
+            if results_yielded >= self.num_articles:
+                return
+
+    def _parse_result(self, result: Node, search_text: str) -> WebScrapeResult:
+        title_node = result.css_first("h3")
+        print(title_node)
+        title = title_node.text(strip=True) if title_node else "N/A"
+
+        url_node = title_node.css_first("a") if title_node else None
+        article_url: str = str(
+            url_node.attributes.get("href", "N/A") if url_node else "N/A"
+        )
+
+        abstract = self._find_element_text(result, class_name="gs_rs")
+
+        citation_node = result.css_first(".gs_fl a")
+        times_cited = (
+            self._extract_number(citation_node.text()) if citation_node else 0
+        )
+
+        pub_info = result.css_first(".gs_a")
+        publication_year = (
+            self._extract_year(pub_info.text()) if pub_info else "N/A"
+        )
+        journal_title = (
+            self._extract_journal(pub_info.text()) if pub_info else None
+        )
+
+        return WebScrapeResult(
+            title=title,
+            pub_date=publication_year,
+            doi=article_url,
+            internal_id=self.publication_type,
+            abstract=abstract,
+            times_cited=times_cited,
+            journal_title=journal_title,
+            keywords=[search_text],
+        )
+
+    def _find_element_text(self, result: Node, class_name: str) -> str:
+        element = result.css_first(f".{class_name}")
+        return element.text(strip=True) if element else ""
+
+    @staticmethod
+    def _extract_number(text: str) -> int:
+        number_match = re.search(r"\d+", text)
+        return int(number_match.group()) if number_match else 0
+
+    @staticmethod
+    def _extract_year(text: str) -> str:
+        year_match = re.search(r"\b\d{4}\b", text)
+        return year_match.group() if year_match else "N/A"
+
+    @staticmethod
+    def _extract_journal(text: str) -> str | None:
+        parts = text.split("-")
+        return parts[1].strip() if len(parts) > 1 else None
 
 
 @dataclass
@@ -376,6 +410,7 @@ class DimensionsScraper(WebScraper):
         )
 
 
+@deprecated("Unnecessary")
 class Style(Enum):
     """An enum that represents
     different academic writing styles.
@@ -392,6 +427,7 @@ class Style(Enum):
 
 
 @dataclass
+@deprecated("Unnecessary")
 class CitationScraper(WebScraper):
     """
     CitationsScraper is a webscraper made exclusively for generating citations
@@ -430,6 +466,7 @@ class CitationScraper(WebScraper):
 
 
 @dataclass
+@deprecated("Unnecessary")
 class OverviewScraper(WebScraper):
     """
     OverviewScraper is a webscraper made exclusively
@@ -461,6 +498,7 @@ class OverviewScraper(WebScraper):
 # TODO: Figure out how to make requests to SemanticScholar without causing 429 Errors.
 # Possibility of a post request according to their API?
 @dataclass
+@deprecated("Unnecessary")
 class SemanticFigureScraper(WebScraper):
     """Scraper that queries
     semanticscholar.org for graphs and charts

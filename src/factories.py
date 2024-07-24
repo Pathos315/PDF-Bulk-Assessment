@@ -60,17 +60,6 @@ SCRAPERS: dict[str, ScrapeFetcher] = {
             column="title",
         ),
     ),
-    "google_lookup": ScrapeFetcher(
-        GoogleScholarScraper(
-            config.google_scholar_url,
-            config.sleep_interval,
-            2016,
-            2024,
-            "j",
-            5,
-        ),
-        serialize_from_txt,
-    ),
 }
 
 
@@ -125,7 +114,6 @@ SCISCRAPERS: dict[str, SciScraper | NoReturn] = {
     "download": SciScraper(SCRAPERS["csv_lookup"], STAGERS["download"]),
     "images": SciScraper(SCRAPERS["csv_lookup"], STAGERS["images"]),
     "fastscore": SciScraper(SCRAPERS["abstract_lookup"], None),
-    "google": SciScraper(SCRAPERS["google_lookup"], None),
 }
 
 
