@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from functools import partial
 from pathlib import Path
+from typing import NoReturn
 
 from src.config import config
 from src.docscraper import DocScraper
@@ -87,6 +88,20 @@ STAGERS: dict[str, StagingFetcher] = {
         BulkPDFScraper(config.downloader_url),
         partial(stage_from_series, column="doi"),
     ),
+    "citations": StagingFetcher(
+        SemanticWebScraper(
+            config.semantic_scholar_url,
+            config.sleep_interval,
+        ),
+        stage_with_reference,
+    ),
+    "references": StagingFetcher(
+        SemanticWebScraper(
+            config.semantic_scholar_url,
+            config.sleep_interval,
+        ),
+        partial(stage_with_reference, column_x="references"),
+    ),
     "images": StagingFetcher(
         ImagesDownloader(url=""),
         partial(stage_with_reference, column_x="figures"),
@@ -102,9 +117,11 @@ STAGERS: dict[str, StagingFetcher] = {
 
 
 # Create instances of scraper factories for different scraper types
-SCISCRAPERS: dict[str, SciScraper] = {
+SCISCRAPERS: dict[str, SciScraper | NoReturn] = {
     "directory": SciScraper(SCRAPERS["pdf_lookup"], STAGERS["pdf_expanded"]),
     "wordscore": SciScraper(SCRAPERS["csv_lookup"], STAGERS["abstracts"]),
+    "citations": SciScraper(SCRAPERS["csv_lookup"], STAGERS["citations"]),
+    "references": SciScraper(SCRAPERS["csv_lookup"], STAGERS["references"]),
     "download": SciScraper(SCRAPERS["csv_lookup"], STAGERS["download"]),
     "images": SciScraper(SCRAPERS["csv_lookup"], STAGERS["images"]),
     "fastscore": SciScraper(SCRAPERS["abstract_lookup"], None),

@@ -192,11 +192,10 @@ class GoogleScholarScraper(WebScraper):
         )
 
 
+@dataclass
 class SemanticWebScraper(WebScraper):
-
-    def __init__(self, url: str, sleep_val: float):
-        self.url = url
-        self.sleep_val = sleep_val  # type: ignore
+    url: str
+    sleep_val: float
 
     def obtain(
         self,
@@ -231,6 +230,14 @@ class SemanticWebScraper(WebScraper):
                 return None
 
             paper_data = data["data"][0]
+            citation_wrapper: list[dict] = paper_data.get("citations", [])
+            reference_wrapper: list[dict] = paper_data.get("references", [])
+            citation_titles: list[str] = [
+                citation["title"] for citation in citation_wrapper
+            ]
+            reference_titles: list[str] = [
+                reference["title"] for reference in reference_wrapper
+            ]
 
             result = WebScrapeResult(
                 title=paper_data.get("title", "N/A"),
@@ -239,8 +246,8 @@ class SemanticWebScraper(WebScraper):
                 internal_id=paper_data.get("paperId", "N/A"),
                 abstract=paper_data.get("abstract", "N/A"),
                 times_cited=paper_data.get("citationCount", 0),
-                citations=paper_data.get("citations", []),
-                references=paper_data.get("references", []),
+                citations=citation_titles,
+                references=reference_titles,
                 journal_title=paper_data.get("journal", {}).get("name"),
                 keywords=paper_data.get("fieldsOfStudy", []),
                 author_list=self.get_authors(paper_data),

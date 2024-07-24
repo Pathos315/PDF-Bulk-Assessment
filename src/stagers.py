@@ -108,12 +108,7 @@ def stage_with_reference(
     return (['a','b','c','d','e','f','g'],['apple','apple','apple','orange','orange','banana','banana'])
     """
     data = target.copy().explode(column_x)
-    data_col_x = clean_any_nested_columns(
+    return (
         list_with_na_replacement(data, column_x),
-        column_x,
-    )
-    data_col_y = clean_any_nested_columns(
         list_with_na_replacement(data, column_y),
-        column_y,
     )
-    return data_col_x, data_col_y
