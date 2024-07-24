@@ -208,7 +208,6 @@ class SemanticWebScraper(WebScraper):
         sleep(self.sleep_val)
 
         url = f"{self.url}search/match?query={search_text}&fields=url,paperId,year,authors,externalIds,title,publicationDate,abstract,citationCount,journal,fieldsOfStudy,citations,references"
-        print(url)
 
         try:
             response = client.get(url)
@@ -230,13 +229,13 @@ class SemanticWebScraper(WebScraper):
                 return None
 
             paper_data = data["data"][0]
-            citation_wrapper: list[dict] = paper_data.get("citations", [])
-            reference_wrapper: list[dict] = paper_data.get("references", [])
             citation_titles: list[str] = [
-                citation["title"] for citation in citation_wrapper
+                citation["title"]
+                for citation in paper_data.get("citations", [])
             ]
             reference_titles: list[str] = [
-                reference["title"] for reference in reference_wrapper
+                reference["title"]
+                for reference in paper_data.get("references", [])
             ]
 
             result = WebScrapeResult(
