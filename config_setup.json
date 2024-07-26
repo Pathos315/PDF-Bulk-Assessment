@@ -7,6 +7,7 @@
     "google_scholar_url": "https://scholar.google.com/scholar",
     "semantic_scholar_url": "https://api.semanticscholar.org/graph/v1/paper/",
     "citation_crosscite_url": "https://citation.crosscite.org/format",
+    "orcid_url": "https://pub.orcid.org/v3.0/expanded-search",
     "abstract_getting_url": "https://app.dimensions.ai/details/sources/publication",
     "downloader_url": "https://sci-hub.se/",
     "export_dir": "exports",

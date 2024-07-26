@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
-from dataclasses import asdict, dataclass, fields
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generator, TypeVar
 
@@ -54,7 +54,9 @@ class Fetcher(ABC):
         """
 
     def fetch(
-        self, search_terms: list[str], tqdm_unit: str = "abstracts"
+        self,
+        search_terms: list[str],
+        tqdm_unit: str = "abstracts",
     ) -> Generator[ScrapeResult, None, None]:
         """
         fetch runs a scrape using the given search terms and yields results.
@@ -87,11 +89,15 @@ class ScrapeFetcher(Fetcher):
     It then puts it into fetch, where it returns a dataframe.
     """
 
-    serializer: SerializationStrategyFunction
+    serializer: SerializationStrategyFunction | None = None
     title_serializer: SerializationStrategyFunction | None = None
 
     def __call__(self, target: Path) -> pd.DataFrame:
-        search_terms: list[str] = self.serializer(target)
+        search_terms: list[str] = (
+            self.serializer(target)
+            if self.serializer
+            else ["prosocial", "design"]
+        )
         results = list(self.fetch(search_terms))
         df = pd.DataFrame(results)
         if self.title_serializer:
@@ -126,7 +132,11 @@ class StagingFetcher(Fetcher):
         """
         results = list(self.fetch(staged_terms))
         dataframe_ext: pd.DataFrame = pd.DataFrame(results)
-        dataframe: pd.DataFrame = prior_dataframe.join(dataframe_ext)
+        dataframe: pd.DataFrame = prior_dataframe.join(
+            other=dataframe_ext,
+            lsuffix="_original",
+            rsuffix="_extended",
+        )
         return dataframe
 
     def fetch_with_staged_reference(
@@ -144,7 +154,6 @@ class StagingFetcher(Fetcher):
         were originally found. The prior dataframe is not kept."""
         citations, src_titles = staged_terms
         results = list(self.fetch(citations))
-        print(results)
         ref_dataframe = pd.DataFrame(results)
         dataframe = ref_dataframe.join(
             pd.Series(

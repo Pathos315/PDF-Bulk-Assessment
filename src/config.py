@@ -73,6 +73,7 @@ class ScrapeConfig:
     google_scholar_url: str
     semantic_scholar_url: str
     citation_crosscite_url: str
+    orcid_url: str
     abstract_getting_url: str
     downloader_url: str = field(repr=False)
     export_dir: str

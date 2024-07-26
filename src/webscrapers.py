@@ -1,26 +1,26 @@
 from __future__ import annotations
 
+from contextlib import suppress
 import json
+import xml.etree.ElementTree as ET
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from json import loads
 from time import sleep
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 from typing_extensions import deprecated
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote_plus
 
 from requests import Response, Session
 from selectolax.parser import HTMLParser, Node
 
-from src.config import DIMENSIONS_AI_MAPPING, SEMANTIC_SCHOLAR_MAPPING, config
+from src.config import DIMENSIONS_AI_MAPPING, config
 from src.log import logger
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-
-    from numpy import _SupportsItem
 
 
 client = Session()
@@ -30,19 +30,19 @@ client = Session()
 class WebScrapeResult:
     """Represents a result from a scrape to be passed back to the dataframe."""
 
-    title: str
-    pub_date: str
-    doi: str
-    internal_id: str | None
-    journal_title: str | None
-    times_cited: int | None
+    title: str = "N/A"
+    pub_date: str = "N/A"
+    doi: str = "N/A"
+    internal_id: str = "N/A"
+    journal_title: str = "N/A"
+    times_cited: int = 0
     author_list: list[str] = field(default_factory=list)
     citations: list[str] = field(default_factory=list)
     references: list[str] = field(default_factory=list)
     keywords: list[str] | None = field(default_factory=list)
     figures: list[str] | None = field(default_factory=list)
-    biblio: str | None = None
-    abstract: str | None = None
+    biblio: str = ""
+    abstract: str = ""
 
 
 @dataclass
@@ -103,9 +103,7 @@ class SemanticWebScraper(WebScraper):
         logger.debug("Searching for: %s", search_text)
         sleep(self.sleep_val)
         fields: str = (
-            "url,paperId,year,authors,externalIds,\
-            title,publicationDate,abstract,citationCount,\
-            journal,fieldsOfStudy,citations,references"
+            "url,paperId,year,authors,externalIds,title,publicationDate,abstract,citationCount,journal,fieldsOfStudy,citations,references"
         )
         url = f"{self.url}search/match?query={search_text}&fields={fields}"
 
@@ -178,137 +176,115 @@ class SemanticWebScraper(WebScraper):
 
 
 @dataclass
-@deprecated("Use Semantic Scraper instead")
-class GoogleScholarScraper(WebScraper):
-    """
-    Representation of a webscraper that makes requests to Google Scholar.
-    """
-
-    start_year: int
-    end_year: int
-    publication_type: str
-    num_articles: int
+class ORCHIDScraper(WebScraper):
+    namespace: dict[str, str] = field(
+        default_factory=lambda: {
+            "es": "http://www.orcid.org/ns/expanded-search"
+        }
+    )
 
     def obtain(
-        self, search_text: str
-    ) -> Generator[WebScrapeResult, None, None]:
-        """
-        Fetches and parses articles from Google Scholar based on the search_text and
-        pre-defined criteria such as publication_type, date range, etc.
-        Yields WebScrapeResult objects as they are parsed.
-        """
-        publication_type_mapping = {
-            "all": "",
-            "j": "source:journals",
-            "b": "source:books",
-            "c": "source:conferences",
+        self, search_terms
+    ) -> Generator[WebScrapeResult, None, None] | None:
+        full_url = self.construct_url(search_terms)
+        sleep(self.sleep_val)
+        response = client.get(full_url)
+        if not response.status_code == 200:
+            return
+        orcid_id = self.parse_xml_response(response.text)
+        if orcid_id is None:
+            return
+        extended_response = self.get_extended_response(orcid_id)
+        if extended_response is None:
+            return
+        yield from self.parse_orcid_json(extended_response)
+
+    def get_extended_response(self, orcid_id: str) -> str | None:
+        extended_page_querystring = {
+            "offset": "0",
+            "sort": "date",
+            "sortAsc": "false",
+            "pageSize": "75",
         }
-        publication_type = publication_type_mapping.get(
-            self.publication_type, ""
+        extended_url = f"https://orcid.org/{orcid_id}/worksExtendedPage.json"
+        extended_response = client.get(
+            extended_url,
+            params=extended_page_querystring,
         )
+        if not extended_response.ok:
+            return
+        return extended_response.text
 
-        results_yielded = 0
-        num_pages = (self.num_articles - 1) // 10 + 1
-
-        for page in range(num_pages):
-            start = page * 10
-            params = {
-                "q": search_text,
-                "hl": "en",
-                "as_ylo": self.start_year,
-                "as_yhi": self.end_year,
-                "as_vis": "0",
-                "start": start,
-            }
-            if publication_type:
-                params["as_sdt"] = "0,5"
-                params["as_vis"] = "1"
-                params[publication_type] = ""
-
-            url = f"{self.url}?{urlencode(params)}"
-            print(url)
-
-            sleep(self.sleep_val)
-            response = client.get(url)
-
-            if not response.ok:
-                logger.error(
-                    f"An error occurred for {search_text} on page {page + 1}"
-                )
-                continue
-
-            html = HTMLParser(response.text)
-            print(html)
-            article_results = html.css("div")
-            print(article_results)
-
-            for result in article_results:
-                print(result.text())
-                parsed_result = self._parse_result(result, search_text)
-                print(parsed_result)
-                if parsed_result:
-                    yield parsed_result
-                    results_yielded += 1
-                    if results_yielded >= self.num_articles:
-                        return
-
-            if results_yielded >= self.num_articles:
-                return
-
-    def _parse_result(self, result: Node, search_text: str) -> WebScrapeResult:
-        title_node = result.css_first("h3")
-        print(title_node)
-        title = title_node.text(strip=True) if title_node else "N/A"
-
-        url_node = title_node.css_first("a") if title_node else None
-        article_url: str = str(
-            url_node.attributes.get("href", "N/A") if url_node else "N/A"
+    def parse_xml_response(self, response_text: str):
+        root = ET.fromstring(response_text).find(
+            "es:expanded-result", self.namespace
         )
+        orcid_id = root.find("es:orcid-id", self.namespace).text  # type: ignore
+        return orcid_id
 
-        abstract = self._find_element_text(result, class_name="gs_rs")
+    def construct_url(self, search_terms):
+        querystring = {
+            "q": '{!edismax qf="given-and-family-names^50.0 family-name^10.0 given-names^10.0 credit-name^10.0 other-names^5.0 text^1.0" pf="given-and-family-names^50.0" bq="current-institution-affiliation-name:[* TO *]^100.0 past-institution-affiliation-name:[* TO *]^70" mm=1}'
+            + search_terms,
+            "start": "0",
+            "rows": "1",
+        }
+        encoded_params = urlencode(querystring, quote_via=quote_plus)
+        full_url = f"{self.url}?{encoded_params}"
+        return full_url
 
-        citation_node = result.css_first(".gs_fl a")
-        times_cited = (
-            self._extract_number(citation_node.text()) if citation_node else 0
-        )
+    def parse_orcid_json(
+        self, json_data: str
+    ) -> Generator[WebScrapeResult, None, None]:
+        data = loads(json_data)
 
-        pub_info = result.css_first(".gs_a")
-        publication_year = (
-            self._extract_year(pub_info.text()) if pub_info else "N/A"
-        )
-        journal_title = (
-            self._extract_journal(pub_info.text()) if pub_info else None
-        )
+        for group in data["groups"]:
+            yield from self.parse_single_orcid_entry(group)
 
-        return WebScrapeResult(
-            title=title,
-            pub_date=publication_year,
-            doi=article_url,
-            internal_id=self.publication_type,
-            abstract=abstract,
-            times_cited=times_cited,
-            journal_title=journal_title,
-            keywords=[search_text],
-        )
+    def parse_single_orcid_entry(
+        self, group: dict
+    ) -> Generator[WebScrapeResult, None, None]:
+        for work in group["works"]:
+            title = work["title"]["value"]
+            try:
+                pub_date = work["publicationDate"]["year"]
+            except TypeError:
+                pub_date = "N/A"
+            doi = next(
+                (
+                    id["externalIdentifierId"]["value"]
+                    for id in work["workExternalIdentifiers"]
+                    if id["externalIdentifierType"]["value"] == "doi"
+                ),
+                "N/A",
+            )
+            internal_id = work["putCode"]["value"]
+            journal_title = (
+                work["journalTitle"]["value"]
+                if work["journalTitle"]
+                else "N/A"
+            )
 
-    def _find_element_text(self, result: Node, class_name: str) -> str:
-        element = result.css_first(f".{class_name}")
-        return element.text(strip=True) if element else ""
+            author_list = [
+                contributor["creditName"]["content"]
+                for contributor in work["contributorsGroupedByOrcid"]
+                if contributor["creditName"]
+            ]
 
-    @staticmethod
-    def _extract_number(text: str) -> int:
-        number_match = re.search(r"\d+", text)
-        return int(number_match.group()) if number_match else 0
-
-    @staticmethod
-    def _extract_year(text: str) -> str:
-        year_match = re.search(r"\b\d{4}\b", text)
-        return year_match.group() if year_match else "N/A"
-
-    @staticmethod
-    def _extract_journal(text: str) -> str | None:
-        parts = text.split("-")
-        return parts[1].strip() if len(parts) > 1 else None
+            yield WebScrapeResult(
+                title=title,
+                pub_date=pub_date,
+                doi=doi,
+                internal_id=internal_id,
+                journal_title=journal_title,
+                times_cited=0,
+                author_list=author_list,
+                citations=[],
+                keywords=None,
+                figures=None,
+                biblio="",
+                abstract="",
+            )
 
 
 @dataclass
