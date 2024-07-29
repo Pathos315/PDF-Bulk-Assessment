@@ -1,12 +1,8 @@
-import pdfplumber
 import pytest
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pathlib import Path
-    from src.config import FilePath
-
-from unittest.mock import MagicMock
 
 
 CONTENT = "Hello world!"

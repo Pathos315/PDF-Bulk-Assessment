@@ -9,7 +9,7 @@ from src.docscraper import DocScraper
 from src.downloaders import BulkPDFScraper
 from src.downloaders import ImagesDownloader
 from src.factories import SCISCRAPERS
-from src.webscrapers import DimensionsScraper
+from src.webscrapers import DimensionsScraper, SemanticWebScraper
 from src.webscrapers import SemanticFigureScraper
 from src.webscrapers import WebScrapeResult
 
@@ -63,10 +63,10 @@ def result_data():
         "times_cited": 5,
         "author_list": ["John", "Mark", "Lee"],
         "citations": ["0.0000", "1.0000", "2.0000", "3.0000"],
-        "keywords": None,
-        "figures": None,
-        "biblio": None,
-        "abstract": None,
+        "keywords": [""],
+        "figures": [""],
+        "biblio": "",
+        "abstract": "",
     }
 
 
@@ -81,10 +81,10 @@ def result_data_as_class():
         times_cited=5,
         author_list=["John", "Mark", "Lee"],
         citations=["0.0000", "1.0000", "2.0000", "3.0000"],
-        keywords=None,
-        figures=None,
-        biblio=None,
-        abstract=None,
+        keywords=[""],
+        figures=[""],
+        biblio="",
+        abstract="",
     )
 
 
@@ -100,7 +100,7 @@ def docscraper_pdf():
 
 @pytest.fixture()
 def scraper():
-    return DimensionsScraper(config.dimensions_ai_dataset_url, sleep_val=0.5)
+    return SemanticWebScraper("https://httpstat.us/200", sleep_val=1.0)
 
 
 @pytest.fixture()
@@ -110,17 +110,7 @@ def fetch_scraper():
 
 @pytest.fixture()
 def faulty_scraper():
-    return DimensionsScraper(url="https://httpstat.us/404")
-
-
-@pytest.fixture()
-def image_scraper():
-    return SemanticFigureScraper(url="https://httpstat.us/200", sleep_val=1.0)
-
-
-@pytest.fixture()
-def faulty_image_scraper():
-    return SemanticFigureScraper(url="https://httpstat.us/404", sleep_val=1.0)
+    return SemanticWebScraper(url="https://httpstat.us/404", sleep_val=1.0)
 
 
 @pytest.fixture()
@@ -165,30 +155,29 @@ def mock_metadata():
     }
 
 
-class MockReadCSV:
-    @staticmethod
-    def readcsv():
-        return [
-            {
-                "title": "Fake News and Misinformation",
-                "doi": 0.1000 / 12345,
-                "times_cited": 1,
-                "authors": "Darius Lettsgetham",
-                "listed_data": "['pub.10001', 'pub.10002', 'pub.10003']",
-            },
-            {
-                "title": "Prosocial Eurythmics",
-                "doi": 10.1000 / 23456,
-                "times_cited": 0,
-                "authors": "Anne Elon-Ux",
-                "listed_data": "['pub.10004', 'pub.10005']",
-            },
-            {
-                "title": "Gamification on Social Media",
-                "doi": 10.1000 / 34567,
-                "times_cited": None,
-                "authors": "I. Ron Butterfly",
-                "authors_id": 28252,
-                "uni_id": "0600055000200019000",
-            },
-        ]
+@pytest.fixture
+def mock_csv():
+    return [
+        {
+            "title": "Fake News and Misinformation",
+            "doi": "0.1000/12345",
+            "times_cited": 1,
+            "authors": "Darius Lettsgetham",
+            "listed_data": "['pub.10001', 'pub.10002', 'pub.10003']",
+        },
+        {
+            "title": "Prosocial Eurythmics",
+            "doi": "10.1000/23456",
+            "times_cited": 0,
+            "authors": "Anne Elon-Ux",
+            "listed_data": "['pub.10004', 'pub.10005']",
+        },
+        {
+            "title": "Gamification on Social Media",
+            "doi": "10.1000/34567",
+            "times_cited": None,
+            "authors": "I. Ron Butterfly",
+            "authors_id": 28252,
+            "uni_id": "0600055000200019000",
+        },
+    ]

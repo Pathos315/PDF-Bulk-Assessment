@@ -10,10 +10,8 @@ from pathlib import Path
 from typing import Any, Generator, TypeVar
 
 import pandas as pd
-import uuid
 from tqdm import tqdm
 
-from src.change_dir import change_dir
 from src.config import KEY_TYPE_PAIRINGS, FilePath, config
 from src.docscraper import DocScraper, DocumentResult
 from src.downloaders import Downloader, DownloadReceipt
@@ -118,11 +116,14 @@ class StagingFetcher(Fetcher):
     def __call__(self, prior_dataframe: pd.DataFrame) -> pd.DataFrame:
         staged_terms: Iterable[Any] = self.stager(prior_dataframe)
         if isinstance(staged_terms, list):
-            return self.fetch_from_staged_series(prior_dataframe, staged_terms)
+            dataframe = self.fetch_from_staged_series(
+                prior_dataframe, staged_terms
+            )
         elif isinstance(staged_terms, tuple):
-            return self.fetch_with_staged_reference(staged_terms)
+            dataframe = self.fetch_with_staged_reference(staged_terms)
         else:
             raise ValueError("Staged terms must be lists or tuples.")
+        return dataframe
 
     def fetch_from_staged_series(
         self, prior_dataframe: pd.DataFrame, staged_terms: list[Any]
@@ -242,28 +243,36 @@ class SciScraper:
     def export_sciscrape_results(
         dataframe: pd.DataFrame,
         export_dir: FilePath = Path(config.export_dir),
+        max_backups: int = 3,
     ) -> None:
         """Export data to the specified export directory."""
         SciScraper.dataframe_logging(dataframe)
-        export_name = SciScraper.create_export_name()
-        with change_dir(export_dir):
-            logger.info(
-                "A spreadsheet was exported as %s in %s.",
-                export_name,
-                export_dir,
-            )
-            dataframe.to_csv(export_name, index=False)
+        base_filename = Path(f"{config.today}_sciscraper.csv")
+        export_path = export_dir / base_filename
+        SciScraper.rotate_existing_files(max_backups, export_path)
+
+        if export_path.exists():
+            export_path.rename(export_path.with_suffix(".1.csv"))
+
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+        dataframe.to_csv(export_path, index=False)
+
+        logger.info(
+            "A spreadsheet was exported as %s in %s.",
+            export_path.name,
+            export_dir,
+        )
+
+    @staticmethod
+    def rotate_existing_files(max_backups: int, export_path: Path):
+        for i in range(max_backups - 1, 0, -1):
+            old_file = export_path.with_suffix(f".{i}.csv")
+            new_file = export_path.with_suffix(f".{i+1}.csv")
+            if old_file.exists():
+                old_file.rename(new_file)
 
     @staticmethod
     def dataframe_logging(dataframe: pd.DataFrame) -> None:
         """Returns the first ten rows of the dataframe into the logger."""
         dataframe.info(verbose=True)
         logger.info("\n\n%s", dataframe.head(10))
-
-    @staticmethod
-    def create_export_name() -> FilePath:
-        """Returns a `export_name` for the spreadsheet with
-        both today's date and a randomly generated `print_id`
-        number."""
-        unique_id: str = str(uuid.uuid4())[:4]
-        return Path(f"{config.today}_sciscraper_{unique_id}.csv")
