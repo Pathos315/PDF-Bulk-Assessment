@@ -86,6 +86,12 @@ class DummyWebScraper(WebScraper):
     def obtain(self, search_text):
         return None
 
+    def process_response(self, search_text, response):
+        pass
+
+    def format_request(self, search_text):
+        pass
+
 
 @pytest.mark.skip
 def test_webscraper_init():
