@@ -175,7 +175,7 @@ class BulkPDFScraper(Downloader):
     def download_paper(
         self, paper_title: FilePath, formatted_src: str
     ) -> DownloadReceipt:
-        paper_contents = client.get(formatted_src, stream=True).content
+        paper_contents: bytes = client.get(formatted_src, stream=True).content
         self.create_document(paper_title, paper_contents)
         return DownloadReceipt(
             self.cls_name, True, f"{self.export_dir}/{paper_title}"

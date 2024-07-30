@@ -9,8 +9,7 @@ from src.docscraper import DocScraper
 from src.downloaders import BulkPDFScraper
 from src.downloaders import ImagesDownloader
 from src.factories import SCISCRAPERS
-from src.webscrapers import DimensionsScraper, SemanticWebScraper
-from src.webscrapers import SemanticFigureScraper
+from src.webscrapers import SemanticWebScraper
 from src.webscrapers import WebScrapeResult
 
 

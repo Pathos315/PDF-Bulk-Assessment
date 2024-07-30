@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from json import loads
 from time import sleep
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 from typing_extensions import deprecated
 from urllib.parse import urlencode, quote_plus
 
@@ -75,14 +75,39 @@ class WebScraper(ABC):
             which gets sent back to a dataframe.
         """
 
+    @abstractmethod
+    def format_request(self, **kwargs) -> Any:
+        pass
+
+    @abstractmethod
+    def process_response(self, response: Any, **kwargs) -> Any:
+        pass
+
+    def make_request(
+        self,
+        url: str,
+        method: str = "GET",
+        **kwargs,
+    ) -> Response | None:
+        sleep(self.sleep_val)
+        response = client.request(method, url, **kwargs)
+        logger.debug(
+            "response=%r, scraper=%r, status_code=%s",
+            response,
+            self,
+            response.status_code,
+        )
+        return response if response.ok else None
+
     def get_item(
-        self, data: dict[str, Any], key: str, subkey: str | None = None
+        self,
+        data: dict[str, Any],
+        key: str,
+        subkey: Optional[str | int] = None,
     ) -> Any:
         """Retrieves an item from the parsed data, with optional subkey."""
         try:
-            if subkey:
-                return data[key][subkey]
-            return data[key]
+            return data[key][subkey] if subkey else data[key]
         except KeyError:
             logger.warning(f"Key '{key}' not found in response data")
             return None
@@ -100,33 +125,23 @@ class SemanticWebScraper(WebScraper):
         """
         Fetches and parses articles from Semantic Scholar based on the search_text.
         """
-        logger.debug("Searching for: %s", search_text)
-        sleep(self.sleep_val)
-        fields: str = (
-            "url,paperId,year,authors,externalIds,title,publicationDate,abstract,citationCount,journal,fieldsOfStudy,citations,references"
+        url = self.format_request(search_text)
+        response = self.make_request(url=url)
+        return (
+            self.process_response(search_text, response) if response else None
         )
-        url = f"{self.url}search/match?query={search_text}&fields={fields}"
 
+    def process_response(
+        self, search_text: str, response: Response
+    ) -> Generator[WebScrapeResult, None, None] | None:
         try:
-            response = client.get(url)
-            logger.debug("Response status: %s", response.status_code)
-
-            if not response.ok:
-                logger.error(
-                    "An error occurred for %s. Status: %s, Response: %s",
-                    search_text,
-                    response.status_code,
-                    response.text,
-                )
-                return None
 
             data = loads(response.text)
 
-            if not data.get("data"):
-                logger.warning("No results found for query: %s", search_text)
+            if not data["data"]:
                 return None
 
-            paper_data = data["data"][0]
+            paper_data = self.get_item(data, "data", 0)
             citation_titles: list[str] = [
                 citation["title"]
                 for citation in paper_data.get("citations", [])
@@ -165,6 +180,13 @@ class SemanticWebScraper(WebScraper):
 
         return None
 
+    def format_request(self, search_text: str) -> str:
+        fields: str = (
+            "url,paperId,year,authors,externalIds,title,publicationDate,abstract,citationCount,journal,fieldsOfStudy,citations,references"
+        )
+        url = f"{self.url}search/match?query={search_text}&fields={fields}"
+        return url
+
     def get_authors(self, paper_data: dict) -> list[str]:
         """
         Extracts author names from the paper data.
@@ -186,11 +208,10 @@ class ORCHIDScraper(WebScraper):
     def obtain(
         self, search_terms
     ) -> Generator[WebScrapeResult, None, None] | None:
-        full_url = self.construct_url(search_terms)
-        sleep(self.sleep_val)
-        response = client.get(full_url)
-        if not response.status_code == 200:
-            return
+        full_url = self.format_request(search_terms)
+        response = self.make_request(full_url)
+        if not response:
+            return None
         orcid_id = self.parse_xml_response(response.text)
         if orcid_id is None:
             return
@@ -207,22 +228,18 @@ class ORCHIDScraper(WebScraper):
             "pageSize": "75",
         }
         extended_url = f"https://orcid.org/{orcid_id}/worksExtendedPage.json"
-        extended_response = client.get(
-            extended_url,
-            params=extended_page_querystring,
+        extended_response = self.make_request(
+            extended_url, params=extended_page_querystring
         )
-        if not extended_response.ok:
-            return
-        return extended_response.text
+        return extended_response.text if extended_response.ok else None  # type: ignore
 
     def parse_xml_response(self, response_text: str):
         root = ET.fromstring(response_text).find(
             "es:expanded-result", self.namespace
         )
-        orcid_id = root.find("es:orcid-id", self.namespace).text  # type: ignore
-        return orcid_id
+        return root.find("es:orcid-id", self.namespace).text  # type: ignore
 
-    def construct_url(self, search_terms):
+    def format_request(self, search_terms: str) -> str:
         querystring = {
             "q": '{!edismax qf="given-and-family-names^50.0 family-name^10.0 given-names^10.0 credit-name^10.0 other-names^5.0 text^1.0" pf="given-and-family-names^50.0" bq="current-institution-affiliation-name:[* TO *]^100.0 past-institution-affiliation-name:[* TO *]^70" mm=1}'
             + search_terms,
@@ -230,8 +247,7 @@ class ORCHIDScraper(WebScraper):
             "rows": "1",
         }
         encoded_params = urlencode(querystring, quote_via=quote_plus)
-        full_url = f"{self.url}?{encoded_params}"
-        return full_url
+        return f"{self.url}?{encoded_params}"
 
     def parse_orcid_json(
         self, json_data: str
@@ -239,9 +255,9 @@ class ORCHIDScraper(WebScraper):
         data = loads(json_data)
 
         for group in data["groups"]:
-            yield from self.parse_single_orcid_entry(group)
+            yield from self.process_response(group)
 
-    def parse_single_orcid_entry(
+    def process_response(
         self, group: dict
     ) -> Generator[WebScrapeResult, None, None]:
         for work in group["works"]:
@@ -285,247 +301,3 @@ class ORCHIDScraper(WebScraper):
                 biblio="",
                 abstract="",
             )
-
-
-@dataclass
-@deprecated("Use SemanticWebScraper instead.")
-class DimensionsScraper(WebScraper):
-    """
-    Representation of a webscraper that makes requests to dimensions.ai.
-    """
-
-    query_subset_citations: bool = False
-
-    def obtain(self, search_text: str) -> WebScrapeResult | None:
-        querystring = self.create_querystring(search_text)
-        response = self.get_docs(querystring)
-        logger.debug(
-            "search_text=%s, scraper=%r, status_code=%s",
-            search_text,
-            self,
-            response.status_code,
-        )
-
-        if response.status_code != 200:
-            return None
-
-        data = self.enrich_response(response)
-        return WebScrapeResult(**data)
-
-    def get_docs(self, querystring: dict[Any, Any]) -> Response:
-        sleep(self.sleep_val)
-        return client.get(self.url, params=querystring)
-
-    def enrich_response(self, response: Response) -> dict[str, Any]:
-        api_mapping = DIMENSIONS_AI_MAPPING
-
-        getters: dict[str, tuple[str, WebScraper]] = {
-            "biblio": (
-                "doi",
-                CitationScraper(
-                    config.citation_crosscite_url,
-                    sleep_val=0.1,
-                ),
-            ),
-            "abstract": (
-                "internal_id",
-                OverviewScraper(
-                    config.abstract_getting_url,
-                    sleep_val=0.1,
-                ),
-            ),
-        }
-        response_data = loads(response.text)
-        item = self.get_item(response_data, "docs")
-        data = {key: item.get(value) for (key, value) in api_mapping.items()}
-        for key, getter in getters.items():
-            data[key] = self.get_extra_variables(data, *getter)
-        return data
-
-    def get_extra_variables(
-        self, data: dict[str, Any], query: str, getter: WebScraper
-    ) -> Generator[WebScrapeResult, None, None] | None:
-        """get_extra_variables queries
-        subsidiary scrapers to get
-        additional data
-
-        Parameters
-        ----------
-        data : dict
-            the dict from the initial scrape
-        getter : WebScraper
-            the subsidiary scraper that
-            will obtain additional information
-        query : str
-            the existing `data` to be queried.
-        """
-        try:
-            return getter.obtain(data[query])
-        except (KeyError, TypeError) as e:
-            logger.error(
-                "func_repr=%r, query=%s, error=%s, action_undertaken=%s",
-                getter,
-                query,
-                e,
-                "Returning None",
-            )
-            return None
-
-    def create_querystring(self, search_text: str) -> dict[str, str]:
-        return (
-            {"or_subset_publication_citations": search_text}
-            if self.query_subset_citations
-            else {
-                "search_mode": "content",
-                "search_text": search_text,
-                "search_type": "kws",
-                "search_field": (
-                    "doi" if search_text.startswith("10.") else "text_search"
-                ),
-            }
-        )
-
-
-@deprecated("Unnecessary")
-class Style(Enum):
-    """An enum that represents
-    different academic writing styles.
-
-    Parameters
-    ----------
-    Style : Enum
-        A given academic writing style
-    """
-
-    APA = "apa"
-    MLA = "modern-language-association"
-    CHI = "chicago-fullnote-bibliography"
-
-
-@dataclass
-@deprecated("Unnecessary")
-class CitationScraper(WebScraper):
-    """
-    CitationsScraper is a webscraper made exclusively for generating citations
-    for requested papers.
-
-    Attributes
-    --------
-    style : Style
-        An Enum denoting a specific kind of writing style.
-        Defaults to "apa".
-    lang : str
-        A string denoting which language will be requested.
-        Defaults to "en-US".
-    """
-
-    style: Style = Style.APA
-    lang: str = "en-US"
-
-    def obtain(self, search_text: str) -> str | None:  # type: ignore[override]
-        querystring = self.create_querystring(search_text)
-        response = client.get(self.url, params=querystring)
-        logger.debug(
-            "search_text=%s, scraper=%r, status_code=%s",
-            search_text,
-            self,
-            response.status_code,
-        )
-        return response.text if response.status_code == 200 else None
-
-    def create_querystring(self, search_text: str) -> dict[str, Any]:
-        return {
-            "doi": search_text,
-            "style": self.style.value,
-            "lang": self.lang,
-        }
-
-
-@dataclass
-@deprecated("Unnecessary")
-class OverviewScraper(WebScraper):
-    """
-    OverviewScraper is a webscraper made exclusively
-    for getting abstracts to papers
-    within the dimensions.ai website.
-    """
-
-    def obtain(self, search_text: str) -> str | None:  # type: ignore[override]
-        url = f"{self.url}/{search_text}/abstract.json"
-        response = client.get(url)
-        logger.debug(
-            "search_text=%s, scraper=%r, status_code=%s",
-            search_text,
-            self,
-            response.status_code,
-        )
-
-        return (
-            self.get_item(
-                response.json(),
-                "docs",
-                "abstract",
-            )
-            if response.status_code == 200
-            else None
-        )
-
-
-# TODO: Figure out how to make requests to SemanticScholar without causing 429 Errors.
-# Possibility of a post request according to their API?
-@dataclass
-@deprecated("Unnecessary")
-class SemanticFigureScraper(WebScraper):
-    """Scraper that queries
-    semanticscholar.org for graphs and charts
-    from the paper in question.
-    """
-
-    def obtain(self, search_text: str) -> list[str | None] | None:  # type: ignore[override]
-        paper_url = self.find_paper_url(search_text)
-        if paper_url is None:
-            return None
-        response = client.get(paper_url)
-        logger.debug(
-            "paper_url=%s, scraper=%r, status_code=%s",
-            paper_url,
-            self,
-            response.status_code,
-        )
-        return (
-            self.parse_html_tree(response.text)
-            if response.status_code == 200
-            else None
-        )
-
-    def find_paper_url(self, search_text: str) -> str | None:
-        paper_searching_url = self.url + urlencode(
-            {"query": search_text, "fields": "url", "limit": 1}
-        )
-        logger.info(paper_searching_url)
-        paper_searching_response = client.get(paper_searching_url)
-        logger.info(paper_searching_response)
-        paper_info: dict[str, Any] = loads(paper_searching_response.text)
-        logger.info(paper_info)
-        try:
-            paper_url: str | None = paper_info["data"][0]["url"]
-            logger.debug("\n%s\n", paper_url)
-        except IndexError as e:
-            logger.error(
-                "error=%s, action_undertaken=%s",
-                e,
-                "Returning None",
-            )
-            paper_url = None
-        return paper_url
-
-    def parse_html_tree(self, response_text: str) -> list[Any] | None:
-        tree = HTMLParser(response_text)
-        images: list[Node] = tree.css(
-            "li.figure-list__figure > a > figure > div > img"
-        )
-        return (
-            [image.attributes.get("src") for image in images]
-            if images
-            else None
-        )
