@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -12,19 +10,11 @@ from feedparser import (
 )  # type: ignore[import-untyped, unused-ignore]
 from googlesearch import search  # type: ignore[import-untyped, unused-ignore]
 
-from src.config import FilePath
+from src.config import FilePath, config
 from src.doi_regex import IDENTIFIER_PATTERNS, extract_identifier
 from src.log import logger
+from src.scraperesults import DOIFromPDFResult
 from src.webscrapers import client
-
-
-@dataclass(frozen=True)
-class DOIFromPDFResult:
-    "A data class containing the extracted identifier, and its type."
-
-    identifier: str | None = None
-    identifier_type: str | None = None
-    validation_info: str | bool | None = True
 
 
 def doi_from_pdf(file: FilePath, preprint: str) -> DOIFromPDFResult | None:
@@ -64,18 +54,16 @@ def find_identifier_in_metadata(
     :rtype: DOIFromPDFResult | None
     :returns: A data class containing the identifier and its type if a valid identifier is found; otherwise, None.
     """
-    priority_keys = {"doi", "pdf2doi_identifier", "arxiv"}
 
     logger.info(
         "Method #1: Looking for a valid identifier in the document metadata..."
     )
 
-    for key in priority_keys:
-        if initial_result := metadata.get(key):
-            logger.info(f"Identifier found using Method #1 {initial_result}")
-            return DOIFromPDFResult(
-                identifier=initial_result, identifier_type=key
-            )
+    for key in config.priority_keys:
+        if not (initial_result := metadata.get(key)):
+            continue
+        logger.info(f"Identifier found using Method #1 {initial_result}")
+        return DOIFromPDFResult(identifier=initial_result, identifier_type=key)
     logger.info(
         "Could not find a valid identifier in the most likely metadata keys."
     )
@@ -98,17 +86,14 @@ def find_identifier_in_pdf_info(
 
     for value in values_to_search:
         result = find_identifier_in_text(value)
-        if result and result.identifier:
-            logger.info(
-                f"A valid {result.identifier_type} was found in the document info labelled '{value}'."
-            )
-            result = result
-        else:
-            logger.info(
-                f"No valid identifier found in the metadata key: '{value}'."
-            )
-            result = None
-    return result
+        if not (result and result.identifier):
+            continue
+        logger.info(
+            f"A valid {result.identifier_type} was found in the document info labelled '{value}'."
+        )
+        return result
+    logger.info(f"No valid identifier found in the metadata key: '{value}'.")
+    return None
 
 
 def extract_metadata(file: FilePath) -> dict[Any, Any]:
@@ -163,7 +148,7 @@ def find_identifier_in_text(
     return DOIFromPDFResult(identifier, id_type, validation)
 
 
-def validate_identifier(identifier: str, id_type: str) -> Any:
+def validate_identifier(identifier: str, id_type: str) -> str | None:
     """
     Validate an identifier by querying appropriate URLs based on the identifier type.
 
@@ -173,21 +158,31 @@ def validate_identifier(identifier: str, id_type: str) -> Any:
     :returns: A string representation of the validation result, or None if validation fails.
     """
     try:
-        if id_type == "arxiv":
-            url = f"http://export.arxiv.org/api/query?search_query=id:{identifier}"
-            result: FeedParserDict = feedparse(url)
-            return str(result["entries"][0]) if result["entries"][0] else None
-        elif id_type == "doi":
-            url = f"http://dx.doi.org/{identifier}"
-            headers = {"accept": "application/citeproc+json"}
-            response = client.get(url, headers=headers)
-            response.raise_for_status()
-            return response.text
+        return (
+            validate_arxiv(identifier)
+            if id_type == "arxiv"
+            else validate_doi(identifier)
+        )
     except Exception as e:
         logger.error(
             "Some error occured within the function validate_doi_web: %s" % e
         )
         return None
+
+
+def validate_doi(identifier: str) -> str:
+    url = f"http://dx.doi.org/{identifier}"
+    headers = {"accept": "application/citeproc+json"}
+    response = client.get(url, headers=headers)
+    response.raise_for_status()
+    return response.text
+
+
+def validate_arxiv(identifier: str) -> str:
+    url = f"http://export.arxiv.org/api/query?search_query=id:{identifier}"
+    result: FeedParserDict = feedparse(url)
+    item = str(result["entries"][0])
+    return item
 
 
 def find_identifier_by_googling_first_n_characters_in_pdf(
@@ -242,11 +237,12 @@ def find_identifier_in_google_search(
     for url in search(query, stop=num_results):
         result = find_identifier_in_text(url)
 
-        if result and result.identifier:
-            logger.info(
-                f"A valid {result.identifier_type} was found in the search URL."
-            )
-            return result
+        if not (result and result.identifier):
+            continue
+        logger.info(
+            f"A valid {result.identifier_type} was found in the search URL."
+        )
+        return result
 
     logger.info("No valid identifier found in the search results.")
     return None

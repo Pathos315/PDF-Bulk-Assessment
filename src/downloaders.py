@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import random
 import re
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryFile
@@ -16,9 +15,10 @@ from typing import TYPE_CHECKING
 from selectolax.parser import HTMLParser
 
 from src.change_dir import change_dir
-from src.config import config, FilePath
-from src.log import logger
-from src.webscrapers import client
+from src.config import FilePath, config
+from src.log import log_debug, logger
+from src.scraperesults import DownloadReceipt
+from src.webscrapers import WebScraper, client
 
 if TYPE_CHECKING:
     from requests import Response
@@ -29,64 +29,16 @@ LINK_CLEANING_PATTERN = re.compile(
 )
 
 
-@dataclass(frozen=True)
-class DownloadReceipt:
-    """
-    A representation of the receipt describing whether
-    or not the download was successful, and,
-    if so, where the ensuing file may be found.
-
-    Attributes
-    ---------
-    downloader : str
-        The class name of the downloader
-        (e.g. 'BulkPDFDownloader, ImageDownloader')
-    success : bool
-        If the download was successful or not. Defaults to False.
-    filepath : str
-        Where the file is located if downloaded. Defaults to 'N/A'.
-    """
-
-    downloader: str
-    success: bool = False
-    filepath: str = "N/A"
-
-
 @dataclass
-class Downloader(ABC):
+class Downloader(WebScraper):
     """An abstract representation of a scraper that downloads files."""
 
-    url: str
-    sleep_val: float = config.sleep_interval
+    sleep_val: float = 1.0
     cls_name: str = field(init=False)
     export_dir: FilePath = Path(config.export_dir)
 
     def __post_init__(self) -> None:
         self.cls_name = type(self).__name__
-
-    @abstractmethod
-    def obtain(self, search_text: str) -> DownloadReceipt | None:
-        """
-        For downloaders, `obtain` submits a payload,
-        as acquired from the prior search terms,
-        to the configured downloader website.
-        If the request is successful,
-        it isolates the link to download as a link of
-        its own, and makes that
-        request. Finally, the paper is downloaded to the
-        configured export directory,
-        while a receipt of this download is
-        passed back to the dataframe.
-        \n
-        The `DownloadReceipt` describes whether
-        or not the download was successful, and,
-        if so, where the ensuing .pdf may be found.
-
-        :param str search_text: Often, this the pubid or digital object identifier (DOI) of the paper in question. Might otherwise be a URL as a string.
-
-        :rtype DownloadReceipt:
-        :returns: A dataclass that describes the `Downloader` used, whether or not the download was successful, and, if so, where that file may be found.
-        """
 
     def create_document(
         self,
@@ -115,6 +67,12 @@ class Downloader(ABC):
             temp.write(contents)
             with open(filename, "wb") as file:
                 file.writelines(temp)
+
+    def format_request(self):
+        raise NotImplementedError("Not applicable to this class.")
+
+    def process_response(self):
+        raise NotImplementedError("Not applicable to this class.")
 
 
 @dataclass
@@ -165,7 +123,6 @@ class BulkPDFScraper(Downloader):
 
         download_link: str | None = self.find_download_link(response_text)
         formatted_src: str | None = self.format_download_link(download_link)
-        logger.debug("download_link=%s", formatted_src)
         return (
             self.download_paper(paper_title, formatted_src)
             if formatted_src
@@ -175,26 +132,25 @@ class BulkPDFScraper(Downloader):
     def download_paper(
         self, paper_title: FilePath, formatted_src: str
     ) -> DownloadReceipt:
-        paper_contents: bytes = client.get(formatted_src, stream=True).content
+        paper_response = self.make_request(formatted_src, stream=True)
+        if not paper_response.content:  # type: ignore
+            return DownloadReceipt(self.cls_name, False)
+        paper_contents = paper_response.content  # type: ignore
         self.create_document(paper_title, paper_contents)
         return DownloadReceipt(
             self.cls_name, True, f"{self.export_dir}/{paper_title}"
         )
 
+    @log_debug
     def get_response(self, payload: dict[str, str]) -> str | None:
         response = client.post(
             self.url,
             data=payload,
         )
         sleep(self.sleep_val)
-        logger.debug(
-            "response=%r, scraper=%r, status_code=%s",
-            response,
-            self,
-            response.status_code,
-        )
         return response.text or None
 
+    @log_debug
     def find_download_link(self, search_text: str | None) -> str | None:
         """
         create_querystring, within `BulkPDFScraper`,
@@ -217,7 +173,6 @@ class BulkPDFScraper(Downloader):
             download_link: str | None = html.css_first(
                 "#buttons button:nth-child(1)"
             ).attributes["onclick"]
-            logger.debug("download_link=%s", download_link)
             return download_link
         except (AttributeError, ValueError) as e:
             logger.error(
@@ -290,6 +245,7 @@ class ImagesDownloader(Downloader):
     file that appears as a result of that query.
     """
 
+    @log_debug
     def obtain(self, search_text: str) -> DownloadReceipt | None:
         """
         Queries the downloader website with the given search text,
@@ -305,12 +261,6 @@ class ImagesDownloader(Downloader):
         sleep(self.sleep_val)
         search_ext = search_text.split(".")[-1]
         response = client.get(search_text, stream=True, allow_redirects=True)
-        logger.debug(
-            "response=%r, scraper=%r, status_code=%s",
-            response,
-            self,
-            response.status_code,
-        )
 
         return (
             self.download_image(search_ext, response)

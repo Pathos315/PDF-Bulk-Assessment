@@ -29,23 +29,22 @@ from src.webscrapers import (
 )
 
 
-# Create instances of scrapers
-SCRAPERS: dict[str, ScrapeFetcher] = {
-    "pdf_lookup": ScrapeFetcher(
+class Scraper:
+    pdf_lookup = ScrapeFetcher(
         DocScraper(
             Path(config.target_words).resolve(),
             Path(config.bycatch_words).resolve(),
         ),
         serialize_from_directory,
-    ),
-    "csv_lookup": ScrapeFetcher(
+    )
+    csv_lookup = ScrapeFetcher(
         SemanticWebScraper(
             config.semantic_scholar_url,
             config.sleep_interval,
         ),
         serialize_from_csv,
-    ),
-    "abstract_lookup": ScrapeFetcher(
+    )
+    abstract_lookup = ScrapeFetcher(
         DocScraper(
             Path(config.target_words).resolve(),
             Path(config.bycatch_words).resolve(),
@@ -59,21 +58,19 @@ SCRAPERS: dict[str, ScrapeFetcher] = {
             serialize_from_csv,
             column="title",
         ),
-    ),
-}
+    )
 
 
-# Create instances of stagers
-STAGERS: dict[str, StagingFetcher] = {
-    "abstracts": StagingFetcher(
+class Stager:
+    abstracts = StagingFetcher(
         DocScraper(
             Path(config.target_words).resolve(),
             Path(config.bycatch_words).resolve(),
             False,
         ),
         stage_from_series,
-    ),
-    "authors": StagingFetcher(
+    )
+    authors = StagingFetcher(
         ORCHIDScraper(
             config.orcid_url,
             config.sleep_interval,
@@ -82,50 +79,49 @@ STAGERS: dict[str, StagingFetcher] = {
             stage_with_reference,
             column_x="author_list",
         ),
-    ),
-    "citations": StagingFetcher(
+    )
+    citations = StagingFetcher(
         SemanticWebScraper(
             config.semantic_scholar_url,
             config.sleep_interval,
         ),
         stage_with_reference,
-    ),
-    "download": StagingFetcher(
+    )
+    download = StagingFetcher(
         BulkPDFScraper(config.downloader_url),
         partial(stage_from_series, column="doi"),
-    ),
-    "images": StagingFetcher(
+    )
+    images = StagingFetcher(
         ImagesDownloader(url=""),
         partial(stage_with_reference, column_x="figures"),
-    ),
-    "pdf_expanded": StagingFetcher(
+    )
+    pdf_expanded = StagingFetcher(
         SemanticWebScraper(
             config.semantic_scholar_url,
             config.sleep_interval,
         ),
         partial(stage_from_series, column="doi_from_pdf"),
-    ),
-    "references": StagingFetcher(
+    )
+    references = StagingFetcher(
         SemanticWebScraper(
             config.semantic_scholar_url,
             config.sleep_interval,
         ),
         partial(stage_with_reference, column_x="references"),
-    ),
-}
+    )
 
-csv_lookup = SCRAPERS["csv_lookup"]
-# Create instances of scraper factories for different scraper types
+
+csv = Scraper.csv_lookup
 SCISCRAPERS: dict[str, SciScraper] = {
-    "citations": SciScraper(csv_lookup, STAGERS["citations"]),
-    "csv": SciScraper(csv_lookup, None),
-    "directory": SciScraper(SCRAPERS["pdf_lookup"], STAGERS["pdf_expanded"]),
-    "download": SciScraper(csv_lookup, STAGERS["download"]),
-    "fastscore": SciScraper(SCRAPERS["abstract_lookup"], None),
-    "images": SciScraper(csv_lookup, STAGERS["images"]),
-    "orcid": SciScraper(csv_lookup, STAGERS["authors"]),
-    "references": SciScraper(csv_lookup, STAGERS["references"]),
-    "wordscore": SciScraper(csv_lookup, STAGERS["abstracts"]),
+    "citations": SciScraper(csv, Stager.citations),
+    "csv": SciScraper(csv, None),
+    "directory": SciScraper(Scraper.pdf_lookup, Stager.pdf_expanded),
+    "download": SciScraper(csv, Stager.download),
+    "fastscore": SciScraper(Scraper.abstract_lookup, None),
+    "images": SciScraper(csv, Stager.images),
+    "orcid": SciScraper(csv, Stager.authors),
+    "references": SciScraper(csv, Stager.references),
+    "wordscore": SciScraper(csv, Stager.abstracts),
 }
 
 

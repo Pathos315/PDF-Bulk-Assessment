@@ -7,24 +7,21 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Generator, TypeVar
+from typing import Any, Generator
 
 import pandas as pd
 from tqdm import tqdm
 
 from src.config import KEY_TYPE_PAIRINGS, FilePath, config
-from src.docscraper import DocScraper, DocumentResult
-from src.downloaders import Downloader, DownloadReceipt
+from src.docscraper import DocScraper
+from src.downloaders import Downloader
 from src.log import logger
-from src.webscrapers import WebScraper, WebScrapeResult
+from src.webscrapers import WebScraper
+from src.scraperesults import ScrapeResult
 
 SerializationStrategyFunction = Callable[[Path], list[Any]]
 StagingStrategyFunction = Callable[[pd.DataFrame], Iterable[Any]]
-ScrapeResult = DocumentResult | WebScrapeResult | DownloadReceipt
 Scraper = DocScraper | WebScraper | Downloader
-
-
-T = TypeVar("T", bound=ScrapeResult)
 
 
 @dataclass
@@ -87,20 +84,16 @@ class ScrapeFetcher(Fetcher):
     It then puts it into fetch, where it returns a dataframe.
     """
 
-    serializer: SerializationStrategyFunction | None = None
+    serializer: SerializationStrategyFunction
     title_serializer: SerializationStrategyFunction | None = None
 
     def __call__(self, target: Path) -> pd.DataFrame:
-        search_terms: list[str] = (
-            self.serializer(target)
-            if self.serializer
-            else ["prosocial", "design"]
-        )
+        search_terms: list[str] = self.serializer(target)
         results = list(self.fetch(search_terms))
-        df = pd.DataFrame(results)
+        dataframe = pd.DataFrame(results)
         if self.title_serializer:
-            df["title"] = self.title_serializer(target)
-        return df
+            dataframe["title"] = self.title_serializer(target)
+        return dataframe
 
 
 @dataclass
@@ -116,14 +109,11 @@ class StagingFetcher(Fetcher):
     def __call__(self, prior_dataframe: pd.DataFrame) -> pd.DataFrame:
         staged_terms: Iterable[Any] = self.stager(prior_dataframe)
         if isinstance(staged_terms, list):
-            dataframe = self.fetch_from_staged_series(
-                prior_dataframe, staged_terms
-            )
+            return self.fetch_from_staged_series(prior_dataframe, staged_terms)
         elif isinstance(staged_terms, tuple):
-            dataframe = self.fetch_with_staged_reference(staged_terms)
+            return self.fetch_with_staged_reference(staged_terms)
         else:
             raise ValueError("Staged terms must be lists or tuples.")
-        return dataframe
 
     def fetch_from_staged_series(
         self, prior_dataframe: pd.DataFrame, staged_terms: list[Any]
@@ -133,12 +123,10 @@ class StagingFetcher(Fetcher):
         """
         results = list(self.fetch(staged_terms))
         dataframe_ext: pd.DataFrame = pd.DataFrame(results)
-        dataframe: pd.DataFrame = prior_dataframe.join(
-            other=dataframe_ext,
-            lsuffix="_original",
-            rsuffix="_extended",
+        return pd.concat(
+            [prior_dataframe, dataframe_ext],
+            axis=1,
         )
-        return dataframe
 
     def fetch_with_staged_reference(
         self,

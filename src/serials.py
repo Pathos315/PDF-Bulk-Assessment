@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from ast import literal_eval
+from pathlib import Path
+
 import pandas as pd
 
 from src.config import UTF, FilePath
 from src.log import log_debug
-
-from pathlib import Path
 
 
 def serialize_from_txt(target: FilePath) -> list[str]:
@@ -72,9 +73,7 @@ def clean_any_nested_columns(data_list: list[str], column: str) -> list[str]:
     """
     initial_terms = [term for term in data_list if not term.startswith("{")]
     nested_terms = [
-        eval(term).get(column, "")
-        for term in data_list
-        if term.startswith("{")
+        literal_eval(term) for term in data_list if term.startswith("{")
     ]
     return initial_terms + nested_terms
 

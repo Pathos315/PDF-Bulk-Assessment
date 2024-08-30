@@ -10,7 +10,7 @@ import pdfplumber
 from src.config import UTF, FilePath
 from src.doifrompdf import doi_from_pdf
 from src.log import logger
-
+from src.scraperesults import DocumentResult
 
 PAPER_STATISTIC = re.compile(r"\(.*\=.*\)")
 
@@ -32,24 +32,6 @@ class FreqDistAndCount:
 
     term_count: int
     frequency_dist: list[tuple[str, int]] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class DocumentResult:
-    """DocumentResult contains the WordscoreCalculator\
-    scoring relevance, and two lists, each with\
-    the three most frequent target and bycatch words respectively.\
-    This gets passed back to a pandas dataframe.\
-    """
-
-    doi_from_pdf: str | None
-    matching_terms: int
-    bycatch_terms: int
-    total_word_count: int
-    wordscore: float
-    target_terms_top_3: list[tuple[str, int]] = field(default_factory=list)
-    bycatch_terms_top_3: list[tuple[str, int]] = field(default_factory=list)
-    paper_parentheticals: list[Any] = field(default_factory=list)
 
 
 def match_terms(target: list[str], word_set: set[str]) -> FreqDistAndCount:
@@ -120,11 +102,7 @@ class DocScraper:
             set[str]: A set of words against which the text will be compared.
         """
         with open(txtfile, encoding=UTF) as iowrapper:
-            wordset = {word.strip().lower() for word in iowrapper}
-            logger.debug(
-                "func=%s, word_set=%s", self.unpack_txt_files, wordset
-            )
-            return wordset
+            return {word.strip().lower() for word in iowrapper}
 
     def obtain(self, search_text: str) -> DocumentResult | None:
         """
@@ -150,7 +128,7 @@ class DocScraper:
             if self.is_pdf
             else search_text
         )
-        digital_object_identifier = doi_from_pdf(search_text, preprint).identifier if self.is_pdf else None  # type: ignore[arg-type, union-attr]
+        digital_object_identifier = doi_from_pdf(search_text, preprint).identifier if self.is_pdf else "N/A"  # type: ignore[arg-type, union-attr]
         token_list: list[str] = self.format_manuscript(preprint)
         target = match_terms(token_list, target_set)
         bycatch = match_terms(token_list, bycatch_set)
@@ -161,7 +139,7 @@ class DocScraper:
             bycatch.term_count,
         )
         doc = DocumentResult(
-            doi_from_pdf=digital_object_identifier,
+            doi_from_pdf=digital_object_identifier,  # type: ignore
             matching_terms=target.term_count,
             bycatch_terms=bycatch.term_count,
             total_word_count=total_word_count,
@@ -177,11 +155,10 @@ class DocScraper:
         """
         This function takes a preprint string and returns a list of words after cleaning the text.
 
-        Args:
-            preprint (str): The preprint text to be cleaned.
+        :param str preprint: The preprint text to be cleaned.
 
-        Returns:
-            list[str]: A list of words after cleaning the text.
+        :rtype list:
+        :return: A list of words after cleaning the text.
         """
         return preprint.strip().lower().split(" ")
 
@@ -191,11 +168,10 @@ class DocScraper:
         file and cleans the text. Returning the words from each page
         as a Generator object.
 
-        Parameters:
-            search_text(str): The initially provided filepath from a prior list comprehension.
+        :param str search_text: The initially provided filepath from a prior list comprehension.
 
-        Returns:
-            str: A string of unformatted words from the entire document.
+        :rtype str:
+        :return: A string of unformatted words from the entire document.
         """
         with pdfplumber.open(pdf_path) as pdf:
             text_pages = [
@@ -206,7 +182,12 @@ class DocScraper:
 
 
 def calculate_likelihood(
-    total_words: int, desired_matches: int, undesired_matches: int
+    total_words: int,
+    desired_matches: int,
+    undesired_matches: int,
+    desired_weight: float = 1.0,
+    undesired_weight: float = -0.25,
+    other_weight: float = 0.5,
 ) -> float:
     """
     Calculates the likelihood score of a manuscript based on the number of words,
@@ -228,9 +209,6 @@ def calculate_likelihood(
     other_words: int = total_words - desired_matches - undesired_matches
 
     # Calculate the likelihood score
-    desired_weight = 1.0
-    undesired_weight = -0.25
-    other_weight = 0.5
 
     likelihood_score = (
         desired_matches * desired_weight

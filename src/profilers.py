@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import time
-from time import perf_counter, sleep
+from time import perf_counter
 from functools import wraps
 import dis
 import pstats

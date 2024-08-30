@@ -52,31 +52,64 @@ def standardize_identifier(identifier: str, pattern_key: str) -> str | None:
     """
     Standardize a DOI or arXiv identifier by removing any marker, lowercase, and applying a consistent separator
     """
-    meta = {}
     regex = DOI_REGEX if pattern_key == "doi" else ARXIV_REGEX
-
-    for matches in regex.finditer(identifier.casefold()):
-        meta.update(matches.groupdict())
+    meta: dict[str, str] = next(regex.finditer(identifier.casefold()), {}).groupdict()  # type: ignore
 
     if pattern_key == "doi":
-        return (
-            None
-            if any(key not in meta for key in ["registrant", "suffix"])
-            else f"10.{meta['registrant']}/{meta['suffix']}"
-        )
-    return None if "identifier" not in meta else meta["identifier"]
+        return format_doi(meta)
+    return meta.get("identifier")
 
 
-def extract_identifier(
-    text: str,
+def format_doi(meta: dict[str, str]) -> str | None:
+    """Format a DOI from its components."""
+    return (
+        f"10.{meta['registrant']}/{meta['suffix']}"
+        if {"registrant", "suffix"}.issubset(meta)
+        else None
+    )
+
+
+def extract_identifier(text: str) -> str | None:
+    """
+    Extract DOI or arXiv identifier from a string.
+
+    Args:
+        text (str): The text to search for an identifier.
+
+    Returns:
+        Optional[str]: The standardized identifier if found, otherwise None.
+    """
+    text_lower = text.casefold()
+
+    for pattern_key, patterns in IDENTIFIER_PATTERNS.items():
+        if not (
+            identifier := find_identifier(text_lower, patterns, pattern_key)
+        ):
+            continue
+        return identifier
+    return None
+
+
+def find_identifier(
+    text: str, patterns: list[re.Pattern[str]], pattern_key: str
 ) -> str | None:
-    """Extract doi or arXiv identifier from a string"""
-    for pattern_key, pattern_list in IDENTIFIER_PATTERNS.items():
-        for pattern in pattern_list:
-            if match := pattern.search(text.casefold()):
-                if pattern_key == "arxiv" and (arxiv_meta := match.group(0)):
-                    return standardize_identifier(arxiv_meta, pattern_key)
-                elif doi_meta := match.group(1):
-                    # For DOI, standardize and return it
-                    return standardize_identifier(doi_meta, pattern_key)
+    """
+    Find and standardize an identifier using a list of patterns.
+
+    Args:
+        text (str): The text to search in.
+        patterns (List[Pattern[str]]): List of regex patterns to try.
+        pattern_key (str): The type of identifier ('doi' or 'arxiv').
+
+    Returns:
+        Optional[str]: The standardized identifier if found, otherwise None.
+    """
+
+    group_index = 0 if pattern_key == "arxiv" else 1
+    for pattern in patterns:
+        if not (this_match := pattern.search(text)):
+            continue
+        if not (meta := this_match.group(group_index)):
+            continue
+        return standardize_identifier(meta, pattern_key)
     return None

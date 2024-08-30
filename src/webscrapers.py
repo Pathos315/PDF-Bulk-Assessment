@@ -1,23 +1,18 @@
 from __future__ import annotations
 
-from contextlib import suppress
 import json
 import xml.etree.ElementTree as ET
-import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from enum import Enum
 from json import loads
 from time import sleep
 from typing import TYPE_CHECKING, Any, Optional
-from typing_extensions import deprecated
-from urllib.parse import urlencode, quote_plus
+from urllib.parse import quote_plus, urlencode
 
 from requests import Response, Session
-from selectolax.parser import HTMLParser, Node
 
-from src.config import DIMENSIONS_AI_MAPPING, config
 from src.log import logger
+from src.scraperesults import ScrapeResult
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -55,7 +50,7 @@ class WebScraper(ABC):
     @abstractmethod
     def obtain(
         self, search_text: str
-    ) -> Generator[WebScrapeResult, None, None] | None:
+    ) -> Generator[ScrapeResult, None, None] | None:
         """
         obtain takes the requested identifier string, `search_text`
         normally a digital object identifier (DOI), or similar,
@@ -97,7 +92,7 @@ class WebScraper(ABC):
             self,
             response.status_code,
         )
-        return response if response.ok else None
+        return response if response.status_code == 200 else None
 
     def get_item(
         self,
@@ -115,8 +110,6 @@ class WebScraper(ABC):
 
 @dataclass
 class SemanticWebScraper(WebScraper):
-    url: str
-    sleep_val: float
 
     def obtain(
         self,
@@ -141,7 +134,7 @@ class SemanticWebScraper(WebScraper):
             if not data["data"]:
                 return None
 
-            paper_data = self.get_item(data, "data", 0)
+            paper_data = self.get_item(data, "data")[0]
             citation_titles: list[str] = [
                 citation["title"]
                 for citation in paper_data.get("citations", [])
@@ -211,7 +204,7 @@ class ORCHIDScraper(WebScraper):
         full_url = self.format_request(search_terms)
         response = self.make_request(full_url)
         if not response:
-            return None
+            return
         orcid_id = self.parse_xml_response(response.text)
         if orcid_id is None:
             return
@@ -231,7 +224,9 @@ class ORCHIDScraper(WebScraper):
         extended_response = self.make_request(
             extended_url, params=extended_page_querystring
         )
-        return extended_response.text if extended_response.ok else None  # type: ignore
+        if not extended_response:
+            return
+        return extended_response.text
 
     def parse_xml_response(self, response_text: str):
         root = ET.fromstring(response_text).find(
@@ -287,7 +282,7 @@ class ORCHIDScraper(WebScraper):
                 if contributor["creditName"]
             ]
 
-            yield WebScrapeResult(
+            result = WebScrapeResult(
                 title=title,
                 pub_date=pub_date,
                 doi=doi,
@@ -301,3 +296,4 @@ class ORCHIDScraper(WebScraper):
                 biblio="",
                 abstract="",
             )
+            yield result
