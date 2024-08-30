@@ -81,6 +81,7 @@ class ScrapeConfig:
     bycatch_words: str
     sleep_interval: float
     profiling_path: str
+    priority_keys: list = field(default_factory=list)
     today: str = date.today().strftime("%y%m%d")
 
 
@@ -104,18 +105,6 @@ def read_config(config_file: str) -> ScrapeConfig:
 
 
 config: ScrapeConfig = read_config("config_setup.json")
-
-DIMENSIONS_AI_MAPPING: dict[str, str] = {
-    "title": "title",
-    "pub_date": "pub_date",
-    "doi": "doi",
-    "internal_id": "id",
-    "journal_title": "journal_title",
-    "times_cited": "times_cited",
-    "author_list": "author_list",
-    "citations": "cited_dimensions_ids",
-    "keywords": "mesh_terms",
-}
 
 SEMANTIC_SCHOLAR_MAPPING: dict[str, str] = {
     "title": "title",

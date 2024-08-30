@@ -14,5 +14,6 @@
     "target_words": "words/target_words.txt",
     "bycatch_words": "words/bycatch_words.txt",
     "sleep_interval": 1.20,
-    "profiling_path": ".logs/profiling/sciscrape_profiling.prof"
+    "profiling_path": ".logs/profiling/sciscrape_profiling.prof",
+    "priority_keys": ["doi", "pdf2doi_identifier", "arxiv"]
 }
