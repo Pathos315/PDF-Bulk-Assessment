@@ -119,7 +119,11 @@ class BulkPDFScraper(Downloader):
         """
         payload = {"request": search_text}
         paper_title = Path(f"{config.today}_{search_text.replace('/','')}.pdf")
-        response_text = self.get_response(payload)
+        response_text = self.make_request(
+            url=self.url,
+            method="POST",
+            payload=payload,
+        )
 
         download_link: str | None = self.find_download_link(response_text)
         formatted_src: str | None = self.format_download_link(download_link)
@@ -132,23 +136,13 @@ class BulkPDFScraper(Downloader):
     def download_paper(
         self, paper_title: FilePath, formatted_src: str
     ) -> DownloadReceipt:
-        paper_response = self.make_request(formatted_src, stream=True)
-        if not paper_response.content:  # type: ignore
+        paper_response = self.make_request(url=formatted_src, stream=True)
+        if not (paper_contents := paper_response.content):  # type: ignore
             return DownloadReceipt(self.cls_name, False)
-        paper_contents = paper_response.content  # type: ignore
         self.create_document(paper_title, paper_contents)
         return DownloadReceipt(
             self.cls_name, True, f"{self.export_dir}/{paper_title}"
         )
-
-    @log_debug
-    def get_response(self, payload: dict[str, str]) -> str | None:
-        response = client.post(
-            self.url,
-            data=payload,
-        )
-        sleep(self.sleep_val)
-        return response.text or None
 
     @log_debug
     def find_download_link(self, search_text: str | None) -> str | None:
