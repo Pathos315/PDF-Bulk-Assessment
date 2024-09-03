@@ -16,3 +16,4 @@ Pipfile
 dist/**
 sciscrape/sciscraper.code-workspace
 /.logs/**
+.logs/sciscraper.log
