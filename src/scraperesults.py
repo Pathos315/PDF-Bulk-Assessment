@@ -71,6 +71,6 @@ class DownloadReceipt(ScrapeResult):
 class DOIFromPDFResult(ScrapeResult):
     "A data class containing the extracted identifier, and its type."
 
-    identifier: str | None = None
-    identifier_type: str | None = None
-    validation_info: str | bool | None = True
+    identifier: str = ""
+    identifier_type: str = ""
+    validation_info: str | bool = True

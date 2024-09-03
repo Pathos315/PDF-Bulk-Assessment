@@ -127,6 +127,7 @@ def find_identifier_in_text(
     """
     search_type = "title" if title_search else "text"
 
+    identifier = ""
     for id_type, pattern in IDENTIFIER_PATTERNS.items():
         logger.info(
             f"Searching for a valid {id_type.upper()} in the document {search_type}..."
@@ -137,18 +138,17 @@ def find_identifier_in_text(
             logger.info(
                 f"No valid {id_type.upper()} found in the document {search_type}."
             )
-        identifier = matches[0]
+
+        identifier = matches[0] if matches else ""
         logger.debug(f"Potential {id_type.upper()} found: {identifier}")
 
         validation = validate_identifier(identifier, id_type)
-        identifier = (
-            extract_identifier(identifier) if id_type == "doi" else identifier
-        )
+        identifier = extract_identifier(identifier) if id_type == "doi" else ""
 
     return DOIFromPDFResult(identifier, id_type, validation)
 
 
-def validate_identifier(identifier: str, id_type: str) -> str | None:
+def validate_identifier(identifier: str, id_type: str) -> str:
     """
     Validate an identifier by querying appropriate URLs based on the identifier type.
 
@@ -167,7 +167,7 @@ def validate_identifier(identifier: str, id_type: str) -> str | None:
         logger.error(
             "Some error occured within the function validate_doi_web: %s" % e
         )
-        return None
+        return ""
 
 
 def validate_doi(identifier: str) -> str:

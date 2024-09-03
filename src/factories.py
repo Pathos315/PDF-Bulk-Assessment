@@ -111,17 +111,17 @@ class Stager:
     )
 
 
-csv = Scraper.csv_lookup
+CSV = Scraper.csv_lookup
 SCISCRAPERS: dict[str, SciScraper] = {
-    "citations": SciScraper(csv, Stager.citations),
-    "csv": SciScraper(csv, None),
+    "citations": SciScraper(CSV, Stager.citations),
+    "csv": SciScraper(CSV, None),
     "directory": SciScraper(Scraper.pdf_lookup, Stager.pdf_expanded),
-    "download": SciScraper(csv, Stager.download),
+    "download": SciScraper(CSV, Stager.download),
     "fastscore": SciScraper(Scraper.abstract_lookup, None),
-    "images": SciScraper(csv, Stager.images),
-    "orcid": SciScraper(csv, Stager.authors),
-    "references": SciScraper(csv, Stager.references),
-    "wordscore": SciScraper(csv, Stager.abstracts),
+    "images": SciScraper(CSV, Stager.images),
+    "orcid": SciScraper(CSV, Stager.authors),
+    "references": SciScraper(CSV, Stager.references),
+    "wordscore": SciScraper(CSV, Stager.abstracts),
 }
 
 

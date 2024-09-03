@@ -48,7 +48,7 @@ IDENTIFIER_PATTERNS = {
 }
 
 
-def standardize_identifier(identifier: str, pattern_key: str) -> str | None:
+def standardize_identifier(identifier: str, pattern_key: str) -> str:
     """
     Standardize a DOI or arXiv identifier by removing any marker, lowercase, and applying a consistent separator
     """
@@ -57,19 +57,23 @@ def standardize_identifier(identifier: str, pattern_key: str) -> str | None:
 
     if pattern_key == "doi":
         return format_doi(meta)
-    return meta.get("identifier")
+    return (
+        f"{meta['identifier']}{meta.get('trailing', '.pdf')}"
+        if {"identifier"}.issubset(meta)
+        else ""
+    )
 
 
-def format_doi(meta: dict[str, str]) -> str | None:
+def format_doi(meta: dict[str, str]) -> str:
     """Format a DOI from its components."""
     return (
         f"10.{meta['registrant']}/{meta['suffix']}"
         if {"registrant", "suffix"}.issubset(meta)
-        else None
+        else ""
     )
 
 
-def extract_identifier(text: str) -> str | None:
+def extract_identifier(text: str) -> str:
     """
     Extract DOI or arXiv identifier from a string.
 
@@ -87,12 +91,12 @@ def extract_identifier(text: str) -> str | None:
         ):
             continue
         return identifier
-    return None
+    return ""
 
 
 def find_identifier(
     text: str, patterns: list[re.Pattern[str]], pattern_key: str
-) -> str | None:
+) -> str:
     """
     Find and standardize an identifier using a list of patterns.
 
@@ -112,4 +116,4 @@ def find_identifier(
         if not (meta := this_match.group(group_index)):
             continue
         return standardize_identifier(meta, pattern_key)
-    return None
+    return ""
