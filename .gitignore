@@ -15,5 +15,7 @@ Pipfile
 **src/config_setup.json
 dist/**
 sciscrape/sciscraper.code-workspace
-/.logs/**
 .logs/sciscraper.log
+.logs/sciscraper.log.1
+.logs/sciscraper.log.2
+.logs/sciscraper.log.3
