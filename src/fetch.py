@@ -14,14 +14,20 @@ from tqdm import tqdm
 
 from src.config import KEY_TYPE_PAIRINGS, FilePath, config
 from src.docscraper import DocScraper
-from src.downloaders import Downloader
+from src.downloaders import BulkPDFScraper, ImagesDownloader
 from src.log import logger
-from src.webscrapers import WebScraper
 from src.scraperesults import ScrapeResult
+from src.webscrapers import ORCHIDScraper, SemanticWebScraper
 
 SerializationStrategyFunction = Callable[[Path], list[Any]]
 StagingStrategyFunction = Callable[[pd.DataFrame], Iterable[Any]]
-Scraper = DocScraper | WebScraper | Downloader
+Scraper = (
+    DocScraper
+    | BulkPDFScraper
+    | ImagesDownloader
+    | SemanticWebScraper
+    | ORCHIDScraper
+)
 
 
 @dataclass
@@ -51,7 +57,7 @@ class Fetcher(ABC):
     def fetch(
         self,
         search_terms: list[str],
-        tqdm_unit: str = "abstracts",
+        tqdm_unit: str = "papers",
     ) -> Generator[ScrapeResult, None, None]:
         """
         fetch runs a scrape using the given search terms and yields results.

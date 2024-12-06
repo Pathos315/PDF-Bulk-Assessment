@@ -1,14 +1,10 @@
-from dataclasses import dataclass, field, fields
-from abc import ABC
+from __future__ import annotations
+from dataclasses import dataclass, field
 from typing import Any
 
 
 @dataclass(frozen=True)
-class ScrapeResult(ABC): ...
-
-
-@dataclass(frozen=True)
-class WebScrapeResult(ScrapeResult):
+class WebScrapeResult:
     """Represents a result from a scrape to be passed back to the dataframe."""
 
     title: str = "N/A"
@@ -27,7 +23,7 @@ class WebScrapeResult(ScrapeResult):
 
 
 @dataclass(frozen=True)
-class DocumentResult(ScrapeResult):
+class DocumentResult:
     """DocumentResult contains the WordscoreCalculator\
     scoring relevance, and two lists, each with\
     the three most frequent target and bycatch words respectively.\
@@ -45,7 +41,7 @@ class DocumentResult(ScrapeResult):
 
 
 @dataclass(frozen=True)
-class DownloadReceipt(ScrapeResult):
+class DownloadReceipt:
     """
     A representation of the receipt describing whether
     or not the download was successful, and,
@@ -68,9 +64,12 @@ class DownloadReceipt(ScrapeResult):
 
 
 @dataclass(frozen=True)
-class DOIFromPDFResult(ScrapeResult):
+class DOIFromPDFResult:
     "A data class containing the extracted identifier, and its type."
 
     identifier: str = ""
     identifier_type: str = ""
     validation_info: str | bool = True
+
+
+ScrapeResult = WebScrapeResult | DocumentResult | DownloadReceipt

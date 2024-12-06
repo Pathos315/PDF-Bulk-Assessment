@@ -7,6 +7,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from os import chdir, getcwd, makedirs, path
 from typing import TYPE_CHECKING
+
 from src.config import FilePath
 
 if TYPE_CHECKING:

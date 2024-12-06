@@ -12,7 +12,7 @@ from urllib.parse import quote_plus, urlencode
 from requests import Response, Session
 
 from src.log import logger
-from src.scraperesults import ScrapeResult
+from src.scraperesults import WebScrapeResult
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -21,120 +21,64 @@ if TYPE_CHECKING:
 client = Session()
 
 
-@dataclass(frozen=True)
-class WebScrapeResult:
-    """Represents a result from a scrape to be passed back to the dataframe."""
+def make_request(
+    url: str,
+    method: str = "GET",
+    sleep_val: float = 1.0,
+    **kwargs,
+) -> Response:
+    sleep(sleep_val)
+    response = client.request(method, url, **kwargs)
+    logger.debug(
+        "response=%r, scraper=%r, status_code=%s",
+        response,
+        response.status_code,
+    )
+    if response.status_code != 200:
+        raise ValueError("Response not found")
+    return response
 
-    title: str = "N/A"
-    pub_date: str = "N/A"
-    doi: str = "N/A"
-    internal_id: str = "N/A"
-    journal_title: str = "N/A"
-    times_cited: int = 0
-    author_list: list[str] = field(default_factory=list)
-    citations: list[str] = field(default_factory=list)
-    references: list[str] = field(default_factory=list)
-    keywords: list[str] | None = field(default_factory=list)
-    figures: list[str] | None = field(default_factory=list)
-    biblio: str = ""
-    abstract: str = ""
+
+def get_item(
+    data: dict[str, Any],
+    key: str,
+    subkey: Optional[str | int] = None,
+) -> Any:
+    """Retrieves an item from the parsed data, with optional subkey."""
+    try:
+        if not subkey:
+            return data[key]
+        return data[key][subkey]
+    except KeyError:
+        logger.warning(f"Key '{key}' not found in response data")
 
 
 @dataclass
-class WebScraper(ABC):
-    """Abstract representation of a webscraper dataclass."""
-
+class SemanticWebScraper:
     url: str
-    sleep_val: float
-
-    @abstractmethod
-    def obtain(
-        self, search_text: str
-    ) -> Generator[ScrapeResult, None, None] | None:
-        """
-        obtain takes the requested identifier string, `search_text`
-        normally a digital object identifier (DOI), or similar,
-        and requests it from the provided citational dataset,
-        which returns bibliographic data on the paper(s) requested.
-
-        Parameters
-        ----------
-        search_text : str
-            the pubid or digital object identifier
-            (i.e. DOI) of the paper in question
-
-        Returns
-        -------
-        WebScrapeResult
-            a dataclass containing the requested information,
-            which gets sent back to a dataframe.
-        """
-
-    @abstractmethod
-    def format_request(self, **kwargs) -> Any:
-        pass
-
-    @abstractmethod
-    def process_response(self, response: Any, **kwargs) -> Any:
-        pass
-
-    def make_request(
-        self,
-        url: str,
-        method: str = "GET",
-        **kwargs,
-    ) -> Response | None:
-        sleep(self.sleep_val)
-        response = client.request(method, url, **kwargs)
-        logger.debug(
-            "response=%r, scraper=%r, status_code=%s",
-            response,
-            self,
-            response.status_code,
-        )
-        return response if response.status_code == 200 else None
-
-    def get_item(
-        self,
-        data: dict[str, Any],
-        key: str,
-        subkey: Optional[str | int] = None,
-    ) -> Any:
-        """Retrieves an item from the parsed data, with optional subkey."""
-        try:
-            return data[key][subkey] if subkey else data[key]
-        except KeyError:
-            logger.warning(f"Key '{key}' not found in response data")
-            return None
-
-
-@dataclass
-class SemanticWebScraper(WebScraper):
 
     def obtain(
         self,
         search_text: str,
-    ) -> Generator[WebScrapeResult, None, None] | None:
+    ) -> Generator[WebScrapeResult, None, None]:
         """
         Fetches and parses articles from Semantic Scholar based on the search_text.
         """
         url = self.format_request(search_text)
-        response = self.make_request(url=url)
-        return (
-            self.process_response(search_text, response) if response else None
-        )
+        response = make_request(url)
+        return self.process_response(search_text, response)
 
     def process_response(
         self, search_text: str, response: Response
-    ) -> Generator[WebScrapeResult, None, None] | None:
+    ) -> Generator[WebScrapeResult, None, None]:
         try:
 
             data = loads(response.text)
 
             if not data["data"]:
-                return None
+                raise ValueError("Data not found.")
 
-            paper_data = self.get_item(data, "data")[0]
+            paper_data = get_item(data, "data")[0]
             citation_titles: list[str] = [
                 citation["title"]
                 for citation in paper_data.get("citations", [])
@@ -158,7 +102,7 @@ class SemanticWebScraper(WebScraper):
                 author_list=self.get_authors(paper_data),
             )
 
-            yield result  # type: ignore
+            yield result
 
         except json.JSONDecodeError:
             logger.error(
@@ -170,8 +114,6 @@ class SemanticWebScraper(WebScraper):
                 search_text,
                 str(e),
             )
-
-        return None
 
     def format_request(self, search_text: str) -> str:
         fields: str = (
@@ -191,29 +133,22 @@ class SemanticWebScraper(WebScraper):
 
 
 @dataclass
-class ORCHIDScraper(WebScraper):
+class ORCHIDScraper:
+    url: str
     namespace: dict[str, str] = field(
         default_factory=lambda: {
             "es": "http://www.orcid.org/ns/expanded-search"
         }
     )
 
-    def obtain(
-        self, search_terms
-    ) -> Generator[WebScrapeResult, None, None] | None:
+    def obtain(self, search_terms) -> Generator[WebScrapeResult, None, None]:
         full_url = self.format_request(search_terms)
-        response = self.make_request(full_url)
-        if not response:
-            return
+        response = make_request(full_url)
         orcid_id = self.parse_xml_response(response.text)
-        if orcid_id is None:
-            return
         extended_response = self.get_extended_response(orcid_id)
-        if extended_response is None:
-            return
         yield from self.parse_orcid_json(extended_response)
 
-    def get_extended_response(self, orcid_id: str) -> str | None:
+    def get_extended_response(self, orcid_id: str) -> str:
         extended_page_querystring = {
             "offset": "0",
             "sort": "date",
@@ -221,14 +156,13 @@ class ORCHIDScraper(WebScraper):
             "pageSize": "75",
         }
         extended_url = f"https://orcid.org/{orcid_id}/worksExtendedPage.json"
-        extended_response = self.make_request(
-            extended_url, params=extended_page_querystring
+        extended_response = make_request(
+            extended_url,
+            params=extended_page_querystring,
         )
-        if not extended_response:
-            return
         return extended_response.text
 
-    def parse_xml_response(self, response_text: str):
+    def parse_xml_response(self, response_text: str) -> str:
         root = ET.fromstring(response_text).find(
             "es:expanded-result", self.namespace
         )
@@ -253,7 +187,7 @@ class ORCHIDScraper(WebScraper):
             yield from self.process_response(group)
 
     def process_response(
-        self, group: dict
+        self, group: dict[Any, Any]
     ) -> Generator[WebScrapeResult, None, None]:
         for work in group["works"]:
             title = work["title"]["value"]
@@ -290,9 +224,9 @@ class ORCHIDScraper(WebScraper):
                 journal_title=journal_title,
                 times_cited=0,
                 author_list=author_list,
-                citations=[],
-                keywords=None,
-                figures=None,
+                citations=[""],
+                keywords=[""],
+                figures=[""],
                 biblio="",
                 abstract="",
             )

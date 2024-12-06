@@ -18,7 +18,7 @@ from src.change_dir import change_dir
 from src.config import FilePath, config
 from src.log import log_debug, logger
 from src.scraperesults import DownloadReceipt
-from src.webscrapers import WebScraper, client
+from src.webscrapers import make_request, client
 
 if TYPE_CHECKING:
     from requests import Response
@@ -29,54 +29,36 @@ LINK_CLEANING_PATTERN = re.compile(
 )
 
 
-@dataclass
-class Downloader(WebScraper):
-    """An abstract representation of a scraper that downloads files."""
+def create_document(
+    filename: FilePath,
+    contents: bytes,
+) -> None:
+    """
+    `create_document` goes to, and downloads, the isolated download link.
+    It is sent as bytes to a temporary text file.
+    The temporary text file is then used as a basis to generate a new pdf.
+    Afterwards, the temporary text file is deleted
+    in preparation for the next pdf.
 
-    sleep_val: float = 1.0
-    cls_name: str = field(init=False)
-    export_dir: FilePath = Path(config.export_dir)
+    Parameters
+    ----------
+    search_text : str
+        The initial term to be rendered in the filename.
+    link : str
+        The link to be followed.
 
-    def __post_init__(self) -> None:
-        self.cls_name = type(self).__name__
-
-    def create_document(
-        self,
-        filename: FilePath,
-        contents: bytes,
-    ) -> None:
-        """
-        `create_document` goes to, and downloads, the isolated download link.
-        It is sent as bytes to a temporary text file.
-        The temporary text file is then used as a basis to generate a new pdf.
-        Afterwards, the temporary text file is deleted
-        in preparation for the next pdf.
-
-        Parameters
-        ----------
-        search_text : str
-            The initial term to be rendered in the filename.
-        link : str
-            The link to be followed.
-
-        Returns
-        -------
-            A .pdf or .png file, depending on the `Downloader` in use.
-        """
-        with change_dir(self.export_dir), TemporaryFile() as temp:
-            temp.write(contents)
-            with open(filename, "wb") as file:
-                file.writelines(temp)
-
-    def format_request(self):
-        raise NotImplementedError("Not applicable to this class.")
-
-    def process_response(self):
-        raise NotImplementedError("Not applicable to this class.")
+    Returns
+    -------
+        A .pdf or .png file, depending on the `Downloader` in use.
+    """
+    with change_dir(config.export_dir), TemporaryFile() as temp:
+        temp.write(contents)
+        with open(filename, "wb") as file:
+            file.writelines(temp)
 
 
 @dataclass
-class BulkPDFScraper(Downloader):
+class BulkPDFScraper:
     """
     The BulkPDFScrape class takes the provided
     string from a prior list.
@@ -90,7 +72,13 @@ class BulkPDFScraper(Downloader):
         the regex pattern that cleans the download link
     """
 
+    url: str
     link_cleaning_pattern: re.Pattern[str] = LINK_CLEANING_PATTERN
+    cls_name: str = field(init=False)
+    export_dir: FilePath = Path(config.export_dir)
+
+    def __post_init__(self) -> None:
+        self.cls_name = type(self).__name__
 
     def obtain(self, search_text: str) -> DownloadReceipt:
         """
@@ -119,7 +107,7 @@ class BulkPDFScraper(Downloader):
         """
         payload = {"request": search_text}
         paper_title = Path(f"{config.today}_{search_text.replace('/','')}.pdf")
-        response_text = self.make_request(
+        response_text = make_request(
             url=self.url,
             method="POST",
             payload=payload,
@@ -136,10 +124,10 @@ class BulkPDFScraper(Downloader):
     def download_paper(
         self, paper_title: FilePath, formatted_src: str
     ) -> DownloadReceipt:
-        paper_response = self.make_request(url=formatted_src, stream=True)
+        paper_response = make_request(url=formatted_src, stream=True)
         if not (paper_contents := paper_response.content):  # type: ignore
             return DownloadReceipt(self.cls_name, False)
-        self.create_document(paper_title, paper_contents)
+        create_document(paper_title, paper_contents)
         return DownloadReceipt(
             self.cls_name, True, f"{self.export_dir}/{paper_title}"
         )
@@ -197,12 +185,12 @@ class BulkPDFScraper(Downloader):
             A link to the requested academic paper.
         """
         if not isinstance(download_link, str):
-            return None
+            return "N/A"
         link_match_object = self.clean_link_with_regex(download_link)
         return (
             self.adjust_download_link(download_link, link_match_object)
             if link_match_object
-            else None
+            else "N/A"
         )
 
     def adjust_download_link(
@@ -230,7 +218,7 @@ class BulkPDFScraper(Downloader):
 
 
 @dataclass
-class ImagesDownloader(Downloader):
+class ImagesDownloader:
     """
     The ImagesDownloader class takes the provided
     string from a prior list.
@@ -238,6 +226,11 @@ class ImagesDownloader(Downloader):
     Then, it downloads the image
     file that appears as a result of that query.
     """
+
+    url: str
+
+    def __post_init__(self) -> None:
+        self.cls_name = type(self).__name__
 
     @log_debug
     def obtain(self, search_text: str) -> DownloadReceipt | None:
@@ -252,9 +245,9 @@ class ImagesDownloader(Downloader):
         DownloadReceipt: A receipt indicating whether the image was successfully
         downloaded and the path to the downloaded image.
         """
-        sleep(self.sleep_val)
+        sleep(1.0)
         search_ext = search_text.split(".")[-1]
-        response = client.get(search_text, stream=True, allow_redirects=True)
+        response = make_request(search_text, stream=True, allow_redirects=True)
 
         return (
             self.download_image(search_ext, response)
@@ -283,7 +276,7 @@ class ImagesDownloader(Downloader):
         filename: FilePath = self.format_filename(
             response.headers.get("Etag"), search_ext
         )
-        self.create_document(filename, response.content)
+        create_document(filename, response.content)
         fullpath = (filename.resolve()).name
         return DownloadReceipt(self.cls_name, True, fullpath)
 

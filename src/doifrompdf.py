@@ -138,7 +138,7 @@ def find_identifier_in_text(
             logger.info(
                 f"No valid {id_type.upper()} found in the document {search_type}."
             )
-
+            return None
         identifier = matches[0] if matches else ""
         logger.debug(f"Potential {id_type.upper()} found: {identifier}")
 
@@ -171,6 +171,23 @@ def validate_identifier(identifier: str, id_type: str) -> str:
 
 
 def validate_doi(identifier: str) -> str:
+    """
+    Validates a DOI by making a GET request to the DOI resolution service.
+
+    The function constructs a URL using the provided DOI identifier and sends a GET request
+    to the DOI resolution service (http://dx.doi.org/). It includes the "accept" header
+    with the value "application/citeproc+json" to specify the desired response format.
+
+    After receiving the response, the function checks if the request was successful by
+    raising an exception if the status code indicates an error. Finally, it returns the
+    text content of the response.
+
+    Parameters:
+    identifier (str): The DOI identifier to be validated.
+
+    Returns:
+    str: The text content of the response from the DOI resolution service.
+    """
     url = f"http://dx.doi.org/{identifier}"
     headers = {"accept": "application/citeproc+json"}
     response = client.get(url, headers=headers)
@@ -179,6 +196,19 @@ def validate_doi(identifier: str) -> str:
 
 
 def validate_arxiv(identifier: str) -> str:
+    """
+    Validates an ArXiv identifier by querying the ArXiv API.
+
+    The function constructs a URL to query the ArXiv API using the provided identifier.
+    It then parses the response using the feedparser library and retrieves the first entry.
+    The function returns the string representation of the first entry.
+
+    Parameters:
+    identifier (str): The ArXiv identifier to be validated.
+
+    Returns:
+    str: The string representation of the first entry from the ArXiv API response.
+    """
     url = f"http://export.arxiv.org/api/query?search_query=id:{identifier}"
     result: FeedParserDict = feedparse(url)
     item = str(result["entries"][0])

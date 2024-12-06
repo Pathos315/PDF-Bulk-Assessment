@@ -40,7 +40,6 @@ class Scraper:
     csv_lookup = ScrapeFetcher(
         SemanticWebScraper(
             config.semantic_scholar_url,
-            config.sleep_interval,
         ),
         serialize_from_csv,
     )
@@ -73,7 +72,6 @@ class Stager:
     authors = StagingFetcher(
         ORCHIDScraper(
             config.orcid_url,
-            config.sleep_interval,
         ),
         partial(
             stage_with_reference,
@@ -83,7 +81,6 @@ class Stager:
     citations = StagingFetcher(
         SemanticWebScraper(
             config.semantic_scholar_url,
-            config.sleep_interval,
         ),
         stage_with_reference,
     )
@@ -98,14 +95,12 @@ class Stager:
     pdf_expanded = StagingFetcher(
         SemanticWebScraper(
             config.semantic_scholar_url,
-            config.sleep_interval,
         ),
         partial(stage_from_series, column="doi_from_pdf"),
     )
     references = StagingFetcher(
         SemanticWebScraper(
             config.semantic_scholar_url,
-            config.sleep_interval,
         ),
         partial(stage_with_reference, column_x="references"),
     )

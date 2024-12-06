@@ -8,7 +8,7 @@ import pdfplumber
 
 from src.config import UTF, FilePath
 from src.doifrompdf import doi_from_pdf
-from src.log import logger
+from src.log import logger, log_debug
 from src.scraperesults import DocumentResult
 
 PAPER_STATISTIC = re.compile(r"\(.*\=.*\)")
@@ -33,6 +33,7 @@ class FreqDistAndCount:
     frequency_dist: list[tuple[str, int]] = field(default_factory=list)
 
 
+@log_debug
 def match_terms(target: list[str], word_set: set[str]) -> FreqDistAndCount:
     """
     Calculates the relevance of the paper, or abstract, as a percentage.
@@ -65,14 +66,7 @@ def match_terms(target: list[str], word_set: set[str]) -> FreqDistAndCount:
         word for word in target if word in word_set
     ).most_common(3)
     term_count = sum(term[1] for term in matching_terms)
-    freq = FreqDistAndCount(term_count, matching_terms)
-    logger.debug(
-        "match_terms=%r,\
-        frequent_terms=%s",
-        match_terms,
-        freq,
-    )
-    return freq
+    return FreqDistAndCount(term_count, matching_terms)
 
 
 @dataclass
@@ -118,8 +112,6 @@ class DocScraper:
             DocumentResult | None : It either returns a formatted DocumentResult dataclass, which is
             sent back to a dataframe, or it returns None.
         """
-
-        logger.debug(repr(self))
         target_set = self.unpack_txt_files(self.target_words_file)
         bycatch_set = self.unpack_txt_files(self.bycatch_words_file)
         preprint: str = (
@@ -147,7 +139,6 @@ class DocScraper:
             bycatch_terms_top_3=bycatch.frequency_dist,
             paper_parentheticals=PAPER_STATISTIC.findall(preprint),
         )
-        logger.debug(repr(doc))
         return doc
 
     def format_manuscript(self, preprint: str) -> list[str]:
