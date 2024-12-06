@@ -133,3 +133,125 @@ def test_find_identifier_in_google_search(mock_find_in_text, mock_search):
 
 
 # Add more tests as needed to cover edge cases and error handling
+from src.doifrompdf import find_identifier_in_metadata
+from src.scraperesults import DOIFromPDFResult
+
+
+def test_find_identifier_in_metadata_special_characters():
+    # Arrange
+    metadata = {
+        "Title": "A Paper with a DOI: 10.1000/12345678",
+        "Author": "John Doe",
+        "Keywords": "Science, Research",
+    }
+
+    # Act
+    result = find_identifier_in_metadata(metadata)
+
+    # Assert
+    assert isinstance(result, DOIFromPDFResult)
+    assert result.identifier == "10.1000/12345678"
+    assert result.identifier_type == "Title"
+
+
+def test_find_identifier_in_metadata_with_leading_trailing_whitespace():
+    # Arrange
+    metadata = {
+        "Title": "   A Paper with a DOI: 10.1000/12345678   ",
+        "Author": "John Doe",
+        "Keywords": "Science, Research",
+    }
+
+    # Act
+    result = find_identifier_in_metadata(metadata)
+
+    # Assert
+    assert isinstance(result, DOIFromPDFResult)
+    assert result.identifier.strip() == "10.1000/12345678"
+    assert result.identifier_type == "Title"
+
+
+from src.doifrompdf import find_identifier_in_metadata
+from src.scraperesults import DOIFromPDFResult
+
+
+def test_find_identifier_in_metadata_non_string_values():
+    # Arrange
+    metadata = {
+        "Title": ["A Paper with a DOI: 10.1000/12345678"],
+        "Author": 12345,
+        "Keywords": ["Science", "Research"],
+    }
+
+    # Act
+    result = find_identifier_in_metadata(metadata)
+
+    # Assert
+    assert isinstance(result, DOIFromPDFResult)
+    assert result.identifier == "10.1000/12345678"
+    assert result.identifier_type == "Title"
+
+
+def test_find_identifier_in_metadata_nested_structures():
+    # Arrange
+    metadata = {
+        "Document": {
+            "Title": "A Paper with a DOI: 10.1000/12345678",
+            "Author": "John Doe",
+            "Keywords": "Science, Research",
+        }
+    }
+
+    # Act
+    result = find_identifier_in_metadata(metadata)
+
+    # Assert
+    assert isinstance(result, DOIFromPDFResult)
+    assert result.identifier == "10.1000/12345678"
+    assert result.identifier_type == "Document.Title"
+
+
+def test_find_identifier_in_metadata_empty_metadata():
+    # Arrange
+    metadata = {}
+
+    # Act
+    result = find_identifier_in_metadata(metadata)
+
+    # Assert
+    assert result is None
+
+
+def test_find_identifier_in_metadata_valid_doi():
+    # Arrange
+    metadata = {
+        "Title": "A Paper with a DOI: 10.1000/12345678",
+        "Author": "John Doe",
+        "Keywords": "Science, Research",
+    }
+
+    # Act
+    result = find_identifier_in_metadata(metadata)
+
+    # Assert
+    assert isinstance(result, DOIFromPDFResult)
+    assert result.identifier == "10.1000/12345678"
+    assert result.identifier_type == "Title"
+
+
+def test_find_identifier_in_metadata_valid_arxiv_id():
+    # Arrange
+    metadata = {
+        "arXiv": "2201.12345",
+        "Title": "A Paper with an arXiv ID: 2201.12345",
+        "Author": "John Doe",
+        "Keywords": "Science, Research",
+    }
+
+    # Act
+    result = find_identifier_in_metadata(metadata)
+
+    # Assert
+    assert isinstance(result, DOIFromPDFResult)
+    assert result.identifier == "2201.12345"
+    assert result.identifier_type == "arXiv"
